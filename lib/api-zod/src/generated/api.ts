@@ -120,39 +120,6 @@ export const CreateChatMessageResponse = zod.object({
 
 
 /**
- * @summary Start an admin session
- */
-export const adminLoginBodyPasswordMin = 8;
-
-
-
-export const AdminLoginBody = zod.object({
-  "email": zod.string().email(),
-  "password": zod.string().min(adminLoginBodyPasswordMin)
-})
-
-export const AdminLoginResponse = zod.object({
-  "authenticated": zod.boolean(),
-  "email": zod.string()
-})
-
-
-/**
- * @summary End the current admin session
- */
-export const AdminLogoutResponse = zod.void()
-
-
-/**
- * @summary Get the current admin session
- */
-export const GetAdminMeResponse = zod.object({
-  "authenticated": zod.boolean(),
-  "email": zod.string()
-})
-
-
-/**
  * @summary Update station and player settings
  */
 export const updateAdminSettingsBodyNameMax = 80;

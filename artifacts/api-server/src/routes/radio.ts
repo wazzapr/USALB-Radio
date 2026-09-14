@@ -1,13 +1,10 @@
 import { desc, eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import {
-  AdminLoginBody,
-  AdminLoginResponse,
   CreateChatMessageBody,
   CreateChatMessageResponse,
   DeleteAdminChatMessageParams,
   GetAdminDiagnosticsResponse,
-  GetAdminMeResponse,
   GetChatResponse,
   GetListenersResponse,
   GetNowPlayingResponse,
@@ -18,14 +15,12 @@ import {
   UpdateAdminSettingsBody,
   UpdateAdminSettingsResponse,
 } from "@workspace/api-zod";
-import { db, adminsTable, chatMessagesTable, mutedUsersTable, nowPlayingTable, stationSettingsTable } from "@workspace/db";
-import { clearAdminSession, getAdminFromRequest, requireAdmin, setAdminSession, verifyAdminPassword } from "../lib/admin-auth";
+import { db, chatMessagesTable, mutedUsersTable, nowPlayingTable, stationSettingsTable } from "@workspace/db";
 import { getBroadcasterSnapshot, getListenerCount, broadcast } from "../lib/radio-state";
 import { getStreamSnapshot } from "../lib/stream-hub";
 
 const router: IRouter = Router();
 const chatRate = new Map<string, number>();
-const loginRate = new Map<string, { count: number; resetAt: number }>();
 
 function configuredStreamUrl(storedUrl: string): string {
   return process.env.PUBLIC_RADIO_STREAM_URL || "/api/radio-stream";
@@ -139,45 +134,7 @@ router.post("/chat", async (req, res): Promise<void> => {
   res.status(201).json(response);
 });
 
-router.post("/admin/login", async (req, res): Promise<void> => {
-  const parsed = AdminLoginBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  const key = req.ip ?? "unknown";
-  const current = loginRate.get(key);
-  if (current && current.resetAt > Date.now() && current.count >= 8) {
-    res.status(429).json({ error: "Too many login attempts. Try again later." });
-    return;
-  }
-  if (!current || current.resetAt <= Date.now()) loginRate.set(key, { count: 1, resetAt: Date.now() + 15 * 60_000 });
-  else current.count += 1;
-  const email = parsed.data.email.trim().toLowerCase();
-  const [admin] = await db.select().from(adminsTable).where(eq(adminsTable.email, email)).limit(1);
-  if (!admin || !(await verifyAdminPassword(parsed.data.password, admin.passwordHash))) {
-    res.status(401).json({ error: "Invalid email or password" });
-    return;
-  }
-  setAdminSession(res, admin.email);
-  res.json(AdminLoginResponse.parse({ authenticated: true, email: admin.email }));
-});
-
-router.post("/admin/logout", (_req, res): void => {
-  clearAdminSession(res);
-  res.sendStatus(204);
-});
-
-router.get("/admin/me", async (req, res): Promise<void> => {
-  const admin = await getAdminFromRequest(req);
-  if (!admin) {
-    res.status(401).json({ error: "Authentication required" });
-    return;
-  }
-  res.json(GetAdminMeResponse.parse({ authenticated: true, email: admin.email }));
-});
-
-router.put("/admin/settings", requireAdmin, async (req, res): Promise<void> => {
+router.put("/admin/settings", async (req, res): Promise<void> => {
   const parsed = UpdateAdminSettingsBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -192,7 +149,7 @@ router.put("/admin/settings", requireAdmin, async (req, res): Promise<void> => {
   res.json(UpdateAdminSettingsResponse.parse(stationResponse(updated)));
 });
 
-router.put("/admin/now-playing", requireAdmin, async (req, res): Promise<void> => {
+router.put("/admin/now-playing", async (req, res): Promise<void> => {
   const parsed = UpdateAdminNowPlayingBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -209,7 +166,7 @@ router.put("/admin/now-playing", requireAdmin, async (req, res): Promise<void> =
   res.json(response);
 });
 
-router.delete("/admin/chat/:id", requireAdmin, async (req, res): Promise<void> => {
+router.delete("/admin/chat/:id", async (req, res): Promise<void> => {
   const parsed = DeleteAdminChatMessageParams.safeParse(req.params);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -220,13 +177,13 @@ router.delete("/admin/chat/:id", requireAdmin, async (req, res): Promise<void> =
   res.sendStatus(204);
 });
 
-router.post("/admin/chat/clear", requireAdmin, async (_req, res): Promise<void> => {
+router.post("/admin/chat/clear", async (_req, res): Promise<void> => {
   await db.delete(chatMessagesTable);
   broadcast({ type: "chat-cleared" });
   res.sendStatus(204);
 });
 
-router.get("/admin/diagnostics", requireAdmin, async (_req, res): Promise<void> => {
+router.get("/admin/diagnostics", async (_req, res): Promise<void> => {
   const [station] = await db.select().from(stationSettingsTable).limit(1);
   const streamUrl = configuredStreamUrl(station?.streamUrl ?? "");
   const heartbeat = getBroadcasterSnapshot();

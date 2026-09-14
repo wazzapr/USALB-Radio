@@ -1,21 +1,17 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Activity, Check, ChevronRight, CircleAlert, ExternalLink, LogOut, Save, ShieldCheck, Trash2, Wifi, X } from 'lucide-react';
+import { Activity, Check, CircleAlert, ExternalLink, Save, Trash2, Wifi, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Link, useLocation } from 'wouter';
+import { Link } from 'wouter';
 import {
   getGetAdminDiagnosticsQueryKey,
-  getGetAdminMeQueryKey,
   getGetChatQueryKey,
   getGetListenersQueryKey,
   getGetNowPlayingQueryKey,
   getGetStationQueryKey,
   getGetStreamStatusQueryKey,
-  useAdminLogin,
-  useAdminLogout,
   useBroadcasterHeartbeat,
   useDeleteAdminChatMessage,
   useGetAdminDiagnostics,
-  useGetAdminMe,
   useGetChat,
   useGetListeners,
   useGetNowPlaying,
@@ -26,23 +22,9 @@ import {
   useUpdateAdminSettings,
 } from '@workspace/api-client-react';
 import type { ChatMessage, BroadcasterHeartbeatStatus, Diagnostics, NowPlaying, Station, StreamStatus } from '@workspace/api-client-react';
-import { ErrorPanel, SectionLabel, Skeleton, StationHeader, StatusBadge, TrackArtwork, formatAgo, formatDuration, formatTime } from '@/components/radio-ui';
+import { ErrorPanel, SectionLabel, StationHeader, StatusBadge, TrackArtwork, formatAgo, formatDuration, formatTime } from '@/components/radio-ui';
 
 const inputClass = 'mt-2 w-full rounded-xl border border-input bg-background px-3.5 py-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-primary';
-
-function Login() {
-  const [, setLocation] = useLocation();
-  const queryClient = useQueryClient();
-  const login = useAdminLogin();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (!email || password.length < 8) return;
-    login.mutate({ data: { email, password } }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetAdminMeQueryKey() }); setLocation('/admin'); } });
-  };
-  return <main className="noise min-h-[100dvh] station-grid"><div className="mx-auto max-w-[520px] px-5 py-8 sm:py-16"><StationHeader admin /><div className="mt-20 rounded-[2rem] border border-border bg-card p-6 shadow-[10px_10px_0_hsl(var(--secondary)/.2)] sm:p-9"><div className="mb-8"><div className="mb-5 grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><ShieldCheck size={23} /></div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-primary">Restricted frequency</p><h1 className="mt-3 text-4xl font-bold tracking-[-.05em]">Welcome back.</h1><p className="mt-3 leading-relaxed text-muted-foreground">Sign in to monitor the signal, tune the metadata, and keep the room kind.</p></div><form onSubmit={submit} className="space-y-5"><label className="block text-sm font-semibold">Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} placeholder="you@station.fm" autoComplete="email" required data-testid="input-admin-email" /></label><label className="block text-sm font-semibold">Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputClass} placeholder="8 characters minimum" autoComplete="current-password" minLength={8} required data-testid="input-admin-password" /></label>{login.isError && <p className="flex items-center gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-xs text-destructive" data-testid="text-login-error"><CircleAlert size={14} /> Email or password not recognized.</p>}<button className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3.5 font-semibold text-primary-foreground transition-transform active:scale-[.99] disabled:opacity-60" disabled={login.isPending} data-testid="button-admin-login">{login.isPending ? 'Opening the control room…' : 'Enter control room'}<ChevronRight size={17} /></button></form></div><Link href="/" className="mt-6 block text-center font-mono text-[10px] uppercase tracking-[.18em] text-muted-foreground hover:text-primary" data-testid="link-back-to-station">← Back to station</Link></div></main>;
-}
 
 function Field({ label, value, onChange, placeholder, type = 'text', testId }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string; testId: string }) {
   return <label className="block text-sm font-semibold">{label}<input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className={inputClass} data-testid={testId} /></label>;
@@ -86,10 +68,8 @@ function Diagnostics({ data }: { data?: Diagnostics }) {
   return <section className="rounded-3xl border border-border bg-card p-5 sm:p-6" data-testid="panel-diagnostics"><SectionLabel right="live checks">Diagnostics</SectionLabel><div className="space-y-3">{!data?.checks?.length ? <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground"><Activity size={15} /> Waiting for diagnostic checks…</div> : data.checks.map((check) => <div key={check.name} className="flex items-start gap-3"><span className={`mt-0.5 grid size-5 place-items-center rounded-full ${check.status === 'pass' ? 'bg-primary/15 text-primary' : check.status === 'warn' ? 'bg-secondary/20 text-secondary' : 'bg-destructive/15 text-destructive'}`}>{check.status === 'pass' ? <Check size={12} /> : <CircleAlert size={12} />}</span><div className="min-w-0"><p className="text-sm font-semibold">{check.name}</p><p className="text-xs text-muted-foreground">{check.detail}</p></div></div>)}</div></section>;
 }
 
-function AdminConsole({ email }: { email: string }) {
-  const [, setLocation] = useLocation();
+function AdminConsole() {
   const queryClient = useQueryClient();
-  const logout = useAdminLogout();
   const station = useGetStation();
   const status = useGetStreamStatus({ query: { queryKey: getGetStreamStatusQueryKey(), refetchInterval: 5000 } });
   const nowPlaying = useGetNowPlaying({ query: { queryKey: getGetNowPlayingQueryKey(), refetchInterval: 10000 } });
@@ -98,13 +78,9 @@ function AdminConsole({ email }: { email: string }) {
   const diagnostics = useGetAdminDiagnostics({ query: { queryKey: getGetAdminDiagnosticsQueryKey(), refetchInterval: 15000 } });
   const heartbeat = useBroadcasterHeartbeat();
   const sendHeartbeat = (heartbeatStatus: BroadcasterHeartbeatStatus) => heartbeat.mutate({ data: { status: heartbeatStatus } }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetStreamStatusQueryKey() }); } });
-  const signOut = () => logout.mutate(undefined, { onSuccess: () => { queryClient.removeQueries({ queryKey: getGetAdminMeQueryKey() }); setLocation('/admin'); } });
-  return <main className="noise min-h-[100dvh] station-grid"><div className="mx-auto max-w-[1420px] px-5 pb-12 pt-5 sm:px-8 lg:px-12"><StationHeader admin /><div className="mt-10 flex flex-col gap-4 border-b border-border pb-7 sm:flex-row sm:items-end sm:justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-primary">Good shift, {email.split('@')[0]}</p><h1 className="mt-2 text-4xl font-bold tracking-[-.06em] sm:text-5xl">The control room.</h1><p className="mt-2 text-muted-foreground">Watch the signal. Keep the room moving.</p></div><div className="flex items-center gap-2"><button onClick={() => sendHeartbeat('STREAMING')} className="flex items-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-xs font-semibold text-primary-foreground" data-testid="button-heartbeat-streaming"><Wifi size={14} /> Send live heartbeat</button><button onClick={signOut} className="grid size-10 place-items-center rounded-xl border border-border bg-card text-muted-foreground hover:text-destructive" aria-label="Sign out" data-testid="button-admin-logout"><LogOut size={16} /></button></div></div>{(station.isError || status.isError) && <div className="mt-6"><ErrorPanel title="Control room signal issue" detail="Some station telemetry could not be loaded." onRetry={() => { void station.refetch(); void status.refetch(); }} /></div>}<div className="mt-7 grid gap-6 xl:grid-cols-[1.1fr_.9fr]"><div className="space-y-6"><SignalCard status={status.data} listeners={listeners.data?.count} /><div className="grid gap-6 md:grid-cols-2"><NowPlayingForm track={nowPlaying.data} /><Diagnostics data={diagnostics.data} /></div></div><div className="space-y-6"><SettingsForm station={station.data} /><Moderation messages={chat.data || []} /></div></div><footer className="mt-10 flex items-center justify-between border-t border-border pt-6"><Link href="/" className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-primary" data-testid="link-preview-station"><ExternalLink size={13} /> View public station</Link><span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">USALB / authenticated</span></footer></div></main>;
+  return <main className="noise min-h-[100dvh] station-grid"><div className="mx-auto max-w-[1420px] px-5 pb-12 pt-5 sm:px-8 lg:px-12"><StationHeader admin /><div className="mt-10 flex flex-col gap-4 border-b border-border pb-7 sm:flex-row sm:items-end sm:justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-primary">Open station operations</p><h1 className="mt-2 text-4xl font-bold tracking-[-.06em] sm:text-5xl">The control room.</h1><p className="mt-2 text-muted-foreground">Watch the signal. Keep the room moving.</p></div><div className="flex items-center gap-2"><button onClick={() => sendHeartbeat('STREAMING')} className="flex items-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-xs font-semibold text-primary-foreground" data-testid="button-heartbeat-streaming"><Wifi size={14} /> Send live heartbeat</button></div></div>{(station.isError || status.isError) && <div className="mt-6"><ErrorPanel title="Control room signal issue" detail="Some station telemetry could not be loaded." onRetry={() => { void station.refetch(); void status.refetch(); }} /></div>}<div className="mt-7 grid gap-6 xl:grid-cols-[1.1fr_.9fr]"><div className="space-y-6"><SignalCard status={status.data} listeners={listeners.data?.count} /><div className="grid gap-6 md:grid-cols-2"><NowPlayingForm track={nowPlaying.data} /><Diagnostics data={diagnostics.data} /></div></div><div className="space-y-6"><SettingsForm station={station.data} /><Moderation messages={chat.data || []} /></div></div><footer className="mt-10 flex items-center justify-between border-t border-border pt-6"><Link href="/" className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-primary" data-testid="link-preview-station"><ExternalLink size={13} /> View public station</Link><span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">USALB / open control room</span></footer></div></main>;
 }
 
 export default function Admin() {
-  const session = useGetAdminMe({ query: { queryKey: getGetAdminMeQueryKey(), retry: false } });
-  if (session.isLoading) return <main className="min-h-[100dvh] bg-background p-5"><div className="mx-auto max-w-[1420px] space-y-8 pt-8"><Skeleton className="h-12 w-40" /><Skeleton className="h-28 w-full" /><div className="grid gap-6 md:grid-cols-2"><Skeleton className="h-80" /><Skeleton className="h-80" /></div></div></main>;
-  if (!session.data?.authenticated) return <Login />;
-  return <AdminConsole email={session.data.email} />;
+  return <AdminConsole />;
 }

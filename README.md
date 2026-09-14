@@ -20,14 +20,11 @@ The server does not use Listen2MyRadio or another external radio provider.
 Copy `.env.example` into your environment and set:
 
 - `DATABASE_URL`: the Replit PostgreSQL connection
-- `SESSION_SECRET`: a long random value
 - `BROADCASTER_PAIRING_CODE`: the code the Windows broadcaster enters
-- `ADMIN_EMAIL` and `ADMIN_PASSWORD_HASH`: optional admin bootstrap values
 - `PUBLIC_RADIO_STREAM_URL`: normally `/api/radio-stream`
 
-`ADMIN_PASSWORD_HASH` is a scrypt hash in the form `salt:derivedKeyHex`.
-The server never stores a plaintext admin password. The database schema is
-created with:
+The station control room is intentionally open and does not use email,
+passwords, sessions, or registration. The database schema is created with:
 
 ```bash
 pnpm --filter @workspace/db run push
