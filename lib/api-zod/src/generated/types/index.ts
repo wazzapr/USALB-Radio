@@ -6,8 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export * from './adminLoginInput';
-export * from './adminSession';
 export * from './broadcasterCommands';
 export * from './broadcasterCommandsCommandsItem';
 export * from './broadcasterHeartbeat';

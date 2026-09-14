@@ -119,17 +119,6 @@ export interface ChatMessageInput {
   message: string;
 }
 
-export interface AdminLoginInput {
-  email: string;
-  /** @minLength 8 */
-  password: string;
-}
-
-export interface AdminSession {
-  authenticated: boolean;
-  email: string;
-}
-
 export type BroadcasterHeartbeatStatus = typeof BroadcasterHeartbeatStatus[keyof typeof BroadcasterHeartbeatStatus];
 
 

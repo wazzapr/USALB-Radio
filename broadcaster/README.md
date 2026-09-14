@@ -17,8 +17,6 @@ Set these Replit environment variables:
 
 - `BROADCASTER_PAIRING_CODE`: the code entered by the broadcaster
 - `PUBLIC_RADIO_STREAM_URL`: normally `/api/radio-stream`
-- `SESSION_SECRET`: a long random value for admin cookies
-
 The pairing code is only used to exchange credentials. Pairing does not test
 audio and does not require the broadcaster to be streaming.
 

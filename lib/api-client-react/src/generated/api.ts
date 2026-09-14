@@ -20,8 +20,6 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  AdminLoginInput,
-  AdminSession,
   BroadcasterCommands,
   BroadcasterHeartbeat,
   BroadcasterIntentInput,
@@ -601,225 +599,6 @@ export const useCreateChatMessage = <TError = ErrorType<void>,
       return useMutation(getCreateChatMessageMutationOptions(options));
     }
 
-export const getAdminLoginUrl = () => {
-
-
-
-
-  return `/api/admin/login`
-}
-
-/**
- * @summary Start an admin session
- */
-export const adminLogin = async (adminLoginInput: AdminLoginInput, options?: Parameters<typeof customFetch>[1]): Promise<AdminSession> => {
-
-  return customFetch<AdminSession>(getAdminLoginUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(adminLoginInput)
-  }
-);}
-
-
-
-
-
-export const getAdminLoginMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminLogin>>, TError,{data: BodyType<AdminLoginInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof adminLogin>>, TError,{data: BodyType<AdminLoginInput>}, TContext> => {
-
-const mutationKey = ['adminLogin'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminLogin>>, {data: BodyType<AdminLoginInput>}> = (props) => {
-          const {data} = props ?? {};
-
-          return  adminLogin(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type AdminLoginMutationResult = NonNullable<Awaited<ReturnType<typeof adminLogin>>>
-    export type AdminLoginMutationBody = BodyType<AdminLoginInput>
-    export type AdminLoginMutationError = ErrorType<void>
-
-    /**
- * @summary Start an admin session
- */
-export const useAdminLogin = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminLogin>>, TError,{data: BodyType<AdminLoginInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof adminLogin>>,
-        TError,
-        {data: BodyType<AdminLoginInput>},
-        TContext
-      > => {
-      return useMutation(getAdminLoginMutationOptions(options));
-    }
-
-export const getAdminLogoutUrl = () => {
-
-
-
-
-  return `/api/admin/logout`
-}
-
-/**
- * @summary End the current admin session
- */
-export const adminLogout = async ( options?: Parameters<typeof customFetch>[1]): Promise<void> => {
-
-  return customFetch<void>(getAdminLogoutUrl(),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
-
-
-export const getAdminLogoutMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminLogout>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof adminLogout>>, TError,void, TContext> => {
-
-const mutationKey = ['adminLogout'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminLogout>>, void> = () => {
-
-
-          return  adminLogout(requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type AdminLogoutMutationResult = NonNullable<Awaited<ReturnType<typeof adminLogout>>>
-
-    export type AdminLogoutMutationError = ErrorType<unknown>
-
-    /**
- * @summary End the current admin session
- */
-export const useAdminLogout = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminLogout>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof adminLogout>>,
-        TError,
-        void,
-        TContext
-      > => {
-      return useMutation(getAdminLogoutMutationOptions(options));
-    }
-
-export const getGetAdminMeUrl = () => {
-
-
-
-
-  return `/api/admin/me`
-}
-
-/**
- * @summary Get the current admin session
- */
-export const getAdminMe = async ( options?: Parameters<typeof customFetch>[1]): Promise<AdminSession> => {
-
-  return customFetch<AdminSession>(getGetAdminMeUrl(),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getGetAdminMeQueryKey = () => {
-    return [
-    `/api/admin/me`
-    ] as const;
-    }
-
-
-export const getGetAdminMeQueryOptions = <TData = Awaited<ReturnType<typeof getAdminMe>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminMe>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getGetAdminMeQueryKey();
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdminMe>>> = ({ signal }) => getAdminMe({ signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdminMe>>, TError, TData> & { queryKey: QueryKey }
-}
-
-export type GetAdminMeQueryResult = NonNullable<Awaited<ReturnType<typeof getAdminMe>>>
-export type GetAdminMeQueryError = ErrorType<void>
-
-
-/**
- * @summary Get the current admin session
- */
-
-export function useGetAdminMe<TData = Awaited<ReturnType<typeof getAdminMe>>, TError = ErrorType<void>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminMe>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-
- ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-
-  const queryOptions = getGetAdminMeQueryOptions(options)
-
-  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-
-
-
-
-
-
 export const getUpdateAdminSettingsUrl = () => {
 
 
@@ -846,7 +625,7 @@ export const updateAdminSettings = async (stationUpdate: StationUpdate, options?
 
 
 
-export const getUpdateAdminSettingsMutationOptions = <TError = ErrorType<void>,
+export const getUpdateAdminSettingsMutationOptions = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdminSettings>>, TError,{data: BodyType<StationUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof updateAdminSettings>>, TError,{data: BodyType<StationUpdate>}, TContext> => {
 
@@ -875,12 +654,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type UpdateAdminSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateAdminSettings>>>
     export type UpdateAdminSettingsMutationBody = BodyType<StationUpdate>
-    export type UpdateAdminSettingsMutationError = ErrorType<void>
+    export type UpdateAdminSettingsMutationError = ErrorType<unknown>
 
     /**
  * @summary Update station and player settings
  */
-export const useUpdateAdminSettings = <TError = ErrorType<void>,
+export const useUpdateAdminSettings = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdminSettings>>, TError,{data: BodyType<StationUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof updateAdminSettings>>,
@@ -917,7 +696,7 @@ export const updateAdminNowPlaying = async (nowPlayingUpdate: NowPlayingUpdate, 
 
 
 
-export const getUpdateAdminNowPlayingMutationOptions = <TError = ErrorType<void>,
+export const getUpdateAdminNowPlayingMutationOptions = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdminNowPlaying>>, TError,{data: BodyType<NowPlayingUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof updateAdminNowPlaying>>, TError,{data: BodyType<NowPlayingUpdate>}, TContext> => {
 
@@ -946,12 +725,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type UpdateAdminNowPlayingMutationResult = NonNullable<Awaited<ReturnType<typeof updateAdminNowPlaying>>>
     export type UpdateAdminNowPlayingMutationBody = BodyType<NowPlayingUpdate>
-    export type UpdateAdminNowPlayingMutationError = ErrorType<void>
+    export type UpdateAdminNowPlayingMutationError = ErrorType<unknown>
 
     /**
  * @summary Update current track metadata
  */
-export const useUpdateAdminNowPlaying = <TError = ErrorType<void>,
+export const useUpdateAdminNowPlaying = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdminNowPlaying>>, TError,{data: BodyType<NowPlayingUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof updateAdminNowPlaying>>,
@@ -988,7 +767,7 @@ export const deleteAdminChatMessage = async (id: number, options?: Parameters<ty
 
 
 
-export const getDeleteAdminChatMessageMutationOptions = <TError = ErrorType<void>,
+export const getDeleteAdminChatMessageMutationOptions = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAdminChatMessage>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof deleteAdminChatMessage>>, TError,{id: number}, TContext> => {
 
@@ -1017,12 +796,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type DeleteAdminChatMessageMutationResult = NonNullable<Awaited<ReturnType<typeof deleteAdminChatMessage>>>
 
-    export type DeleteAdminChatMessageMutationError = ErrorType<void>
+    export type DeleteAdminChatMessageMutationError = ErrorType<unknown>
 
     /**
  * @summary Delete a chat message
  */
-export const useDeleteAdminChatMessage = <TError = ErrorType<void>,
+export const useDeleteAdminChatMessage = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAdminChatMessage>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof deleteAdminChatMessage>>,
@@ -1059,7 +838,7 @@ export const clearAdminChat = async ( options?: Parameters<typeof customFetch>[1
 
 
 
-export const getClearAdminChatMutationOptions = <TError = ErrorType<void>,
+export const getClearAdminChatMutationOptions = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearAdminChat>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof clearAdminChat>>, TError,void, TContext> => {
 
@@ -1088,12 +867,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type ClearAdminChatMutationResult = NonNullable<Awaited<ReturnType<typeof clearAdminChat>>>
 
-    export type ClearAdminChatMutationError = ErrorType<void>
+    export type ClearAdminChatMutationError = ErrorType<unknown>
 
     /**
  * @summary Clear all chat messages
  */
-export const useClearAdminChat = <TError = ErrorType<void>,
+export const useClearAdminChat = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearAdminChat>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof clearAdminChat>>,
@@ -1137,7 +916,7 @@ export const getGetAdminDiagnosticsQueryKey = () => {
     }
 
 
-export const getGetAdminDiagnosticsQueryOptions = <TData = Awaited<ReturnType<typeof getAdminDiagnostics>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminDiagnostics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetAdminDiagnosticsQueryOptions = <TData = Awaited<ReturnType<typeof getAdminDiagnostics>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminDiagnostics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -1156,14 +935,14 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GetAdminDiagnosticsQueryResult = NonNullable<Awaited<ReturnType<typeof getAdminDiagnostics>>>
-export type GetAdminDiagnosticsQueryError = ErrorType<void>
+export type GetAdminDiagnosticsQueryError = ErrorType<unknown>
 
 
 /**
  * @summary Run stream connectivity diagnostics
  */
 
-export function useGetAdminDiagnostics<TData = Awaited<ReturnType<typeof getAdminDiagnostics>>, TError = ErrorType<void>>(
+export function useGetAdminDiagnostics<TData = Awaited<ReturnType<typeof getAdminDiagnostics>>, TError = ErrorType<unknown>>(
   options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminDiagnostics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {

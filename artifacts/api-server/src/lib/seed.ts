@@ -1,5 +1,4 @@
 import { db, nowPlayingTable, stationSettingsTable } from "@workspace/db";
-import { ensureAdminSeed } from "./admin-auth";
 
 export async function ensureSeedData(): Promise<void> {
   const station = await db.select({ id: stationSettingsTable.id }).from(stationSettingsTable).limit(1);
@@ -22,6 +21,4 @@ export async function ensureSeedData(): Promise<void> {
       genre: "Open format",
     });
   }
-
-  await ensureAdminSeed();
 }

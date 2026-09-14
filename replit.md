@@ -10,7 +10,7 @@ USALB Radio relays authenticated Windows system-audio broadcasts to mobile liste
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL`, `SESSION_SECRET`, and `BROADCASTER_PAIRING_CODE`
+- Required env: `DATABASE_URL` and `BROADCASTER_PAIRING_CODE`
 
 ## Stack
 
@@ -35,6 +35,7 @@ USALB Radio relays authenticated Windows system-audio broadcasts to mobile liste
 - Pairing is independent of streaming: a valid code creates persistent broadcaster credentials without probing for audio.
 - The server owns the live relay: the broadcaster uploads one authenticated chunked MP3 connection, and listeners read `/api/radio-stream`.
 - `LIVE` requires recent broadcaster audio bytes, not just a healthy website or heartbeat request.
+- The station control room is intentionally public; only the broadcaster source connection remains authenticated.
 - API and WebSocket routes are declared in the API artifact routing so the web app's SPA rewrite cannot swallow them.
 
 ## Product

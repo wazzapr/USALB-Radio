@@ -108,48 +108,6 @@ paths:
                 $ref: "#/components/schemas/ChatMessage"
         "400":
           description: Invalid message
-  /admin/login:
-    post:
-      operationId: adminLogin
-      tags: [admin]
-      summary: Start an admin session
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AdminLoginInput"
-      responses:
-        "200":
-          description: Logged in
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AdminSession"
-        "401":
-          description: Invalid credentials
-  /admin/logout:
-    post:
-      operationId: adminLogout
-      tags: [admin]
-      summary: End the current admin session
-      responses:
-        "204":
-          description: Logged out
-  /admin/me:
-    get:
-      operationId: getAdminMe
-      tags: [admin]
-      summary: Get the current admin session
-      responses:
-        "200":
-          description: Current admin
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AdminSession"
-        "401":
-          description: Not authenticated
   /admin/settings:
     put:
       operationId: updateAdminSettings
@@ -168,8 +126,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Station"
-        "401":
-          description: Not authenticated
   /admin/now-playing:
     put:
       operationId: updateAdminNowPlaying
@@ -188,8 +144,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/NowPlaying"
-        "401":
-          description: Not authenticated
   /admin/chat/{id}:
     delete:
       operationId: deleteAdminChatMessage
@@ -204,8 +158,6 @@ paths:
       responses:
         "204":
           description: Deleted
-        "401":
-          description: Not authenticated
   /admin/chat/clear:
     post:
       operationId: clearAdminChat
@@ -214,8 +166,6 @@ paths:
       responses:
         "204":
           description: Cleared
-        "401":
-          description: Not authenticated
   /admin/diagnostics:
     get:
       operationId: getAdminDiagnostics
@@ -228,8 +178,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Diagnostics"
-        "401":
-          description: Not authenticated
   /broadcaster/pair:
     post:
       operationId: pairBroadcaster
@@ -454,18 +402,6 @@ components:
       properties:
         nickname: { type: string, minLength: 2, maxLength: 32 }
         message: { type: string, minLength: 1, maxLength: 500 }
-    AdminLoginInput:
-      type: object
-      required: [email, password]
-      properties:
-        email: { type: string, format: email }
-        password: { type: string, minLength: 8 }
-    AdminSession:
-      type: object
-      required: [authenticated, email]
-      properties:
-        authenticated: { type: boolean }
-        email: { type: string }
     BroadcasterHeartbeat:
       type: object
       required: [status]
