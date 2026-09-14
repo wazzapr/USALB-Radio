@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "USALB Radio"
+description = "A mobile-first internet radio station for live system-audio broadcasting, with real stream status, now playing metadata, listener count, live chat, and an authenticated admin console."
+version = "1.0.0"
+id = "artifacts/usalb-radio"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19604
+
+[services.development]
+run = "pnpm --filter @workspace/usalb-radio run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/usalb-radio", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/usalb-radio/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19604"
+BASE_PATH = "/"

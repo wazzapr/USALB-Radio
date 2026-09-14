@@ -3,20 +3,23 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: USALB Radio live broadcasting and station management API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
-    description: Health operations
+  - name: station
+  - name: stream
+  - name: chat
+  - name: admin
+  - name: broadcaster
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +27,518 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /station:
+    get:
+      operationId: getStation
+      tags: [station]
+      summary: Get public station settings
+      responses:
+        "200":
+          description: Station settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Station"
+  /stream-status:
+    get:
+      operationId: getStreamStatus
+      tags: [stream]
+      summary: Get the real stream health status
+      responses:
+        "200":
+          description: Stream status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StreamStatus"
+  /now-playing:
+    get:
+      operationId: getNowPlaying
+      tags: [station]
+      summary: Get current now playing metadata
+      responses:
+        "200":
+          description: Current track
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NowPlaying"
+  /listeners:
+    get:
+      operationId: getListeners
+      tags: [stream]
+      summary: Get current listener count
+      responses:
+        "200":
+          description: Listener count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListenerCount"
+  /chat:
+    get:
+      operationId: getChat
+      tags: [chat]
+      summary: Get recent public chat messages
+      responses:
+        "200":
+          description: Recent chat messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatMessage"
+    post:
+      operationId: createChatMessage
+      tags: [chat]
+      summary: Add a public chat message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatMessageInput"
+      responses:
+        "201":
+          description: Created message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatMessage"
+        "400":
+          description: Invalid message
+  /admin/login:
+    post:
+      operationId: adminLogin
+      tags: [admin]
+      summary: Start an admin session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminLoginInput"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSession"
+        "401":
+          description: Invalid credentials
+  /admin/logout:
+    post:
+      operationId: adminLogout
+      tags: [admin]
+      summary: End the current admin session
+      responses:
+        "204":
+          description: Logged out
+  /admin/me:
+    get:
+      operationId: getAdminMe
+      tags: [admin]
+      summary: Get the current admin session
+      responses:
+        "200":
+          description: Current admin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSession"
+        "401":
+          description: Not authenticated
+  /admin/settings:
+    put:
+      operationId: updateAdminSettings
+      tags: [admin]
+      summary: Update station and player settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StationUpdate"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Station"
+        "401":
+          description: Not authenticated
+  /admin/now-playing:
+    put:
+      operationId: updateAdminNowPlaying
+      tags: [admin]
+      summary: Update current track metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NowPlayingUpdate"
+      responses:
+        "200":
+          description: Updated track
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NowPlaying"
+        "401":
+          description: Not authenticated
+  /admin/chat/{id}:
+    delete:
+      operationId: deleteAdminChatMessage
+      tags: [admin]
+      summary: Delete a chat message
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          description: Not authenticated
+  /admin/chat/clear:
+    post:
+      operationId: clearAdminChat
+      tags: [admin]
+      summary: Clear all chat messages
+      responses:
+        "204":
+          description: Cleared
+        "401":
+          description: Not authenticated
+  /admin/diagnostics:
+    get:
+      operationId: getAdminDiagnostics
+      tags: [admin]
+      summary: Run stream connectivity diagnostics
+      responses:
+        "200":
+          description: Diagnostic checks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Diagnostics"
+        "401":
+          description: Not authenticated
+  /broadcaster/pair:
+    post:
+      operationId: pairBroadcaster
+      tags: [broadcaster]
+      summary: Exchange a station pairing code for persistent broadcaster credentials
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BroadcasterPairInput"
+      responses:
+        "200":
+          description: Broadcaster credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BroadcasterPair"
+        "401":
+          description: Invalid pairing code
+        "503":
+          description: Pairing is not configured
+  /broadcaster/commands:
+    get:
+      operationId: getBroadcasterCommands
+      tags: [broadcaster]
+      summary: Read pending commands for a paired broadcaster
+      responses:
+        "200":
+          description: Pending commands
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BroadcasterCommands"
+        "401":
+          description: Broadcaster authentication required
+  /broadcaster/telemetry:
+    post:
+      operationId: broadcasterTelemetry
+      tags: [broadcaster]
+      summary: Send broadcaster telemetry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BroadcasterTelemetryInput"
+      responses:
+        "204":
+          description: Telemetry accepted
+        "401":
+          description: Broadcaster authentication required
+  /broadcaster/intent:
+    post:
+      operationId: broadcasterIntent
+      tags: [broadcaster]
+      summary: Report a broadcaster lifecycle intent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BroadcasterIntentInput"
+      responses:
+        "200":
+          description: Intent accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BroadcasterIntentResult"
+        "401":
+          description: Broadcaster authentication required
+  /radio-ingest:
+    post:
+      operationId: ingestRadioAudio
+      tags: [broadcaster]
+      summary: Open a persistent authenticated audio ingest connection
+      requestBody:
+        required: true
+        content:
+          audio/mpeg:
+            schema:
+              type: string
+              format: binary
+          audio/aac:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Persistent ingest connection accepted
+          content:
+            text/plain:
+              schema:
+                type: string
+        "401":
+          description: Broadcaster authentication required
+        "409":
+          description: Another broadcaster is already connected
+  /radio-stream:
+    get:
+      operationId: getRadioStream
+      tags: [stream]
+      summary: Relay the active broadcaster audio to listeners
+      responses:
+        "200":
+          description: Continuous live audio stream
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+        "503":
+          description: Radio is offline
+  /broadcaster/heartbeat:
+    post:
+      operationId: broadcasterHeartbeat
+      tags: [broadcaster]
+      summary: Receive a broadcaster heartbeat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BroadcasterHeartbeat"
+      responses:
+        "204":
+          description: Heartbeat accepted
+      security:
+        - broadcasterKey: []
 components:
+  securitySchemes:
+    broadcasterKey:
+      type: apiKey
+      in: header
+      name: X-Broadcaster-Key
   schemas:
     HealthStatus:
       type: object
       properties:
         status:
           type: string
-      required:
-        - status
-
+      required: [status]
+    Station:
+      type: object
+      required: [name, slogan, genre, streamUrl, chatEnabled]
+      properties:
+        name: { type: string }
+        slogan: { type: string }
+        genre: { type: string }
+        logoUrl: { type: ["string", "null"] }
+        streamUrl: { type: string }
+        chatEnabled: { type: boolean }
+        socialLinks:
+          type: object
+          additionalProperties: { type: string }
+    StationUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        slogan: { type: string, maxLength: 160 }
+        genre: { type: string, maxLength: 80 }
+        logoUrl: { type: ["string", "null"] }
+        streamUrl: { type: string, maxLength: 500 }
+        chatEnabled: { type: boolean }
+        socialLinks:
+          type: object
+          additionalProperties: { type: string }
+    StreamStatus:
+      type: object
+      required: [state, isLive, broadcasterConnected, listenerCount, lastHeartbeat, streamUrl]
+      properties:
+        state:
+          type: string
+          enum: [OFFLINE, CONNECTING, LIVE, RECONNECTING, ERROR]
+        isLive: { type: boolean }
+        broadcasterConnected: { type: boolean }
+        listenerCount: { type: integer, minimum: 0 }
+        uptimeSeconds: { type: integer, minimum: 0 }
+        lastHeartbeat: { type: ["string", "null"], format: date-time }
+        streamUrl: { type: string }
+        contentType: { type: ["string", "null"] }
+        bitrateKbps: { type: ["number", "null"] }
+        sampleRate: { type: ["integer", "null"] }
+        currentTrack:
+          anyOf:
+            - $ref: "#/components/schemas/NowPlaying"
+            - type: "null"
+    NowPlaying:
+      type: object
+      required: [artist, title, artworkUrl, genre, startedAt]
+      properties:
+        artist: { type: string }
+        title: { type: string }
+        artworkUrl: { type: ["string", "null"] }
+        genre: { type: string }
+        startedAt: { type: ["string", "null"], format: date-time }
+    NowPlayingUpdate:
+      type: object
+      required: [artist, title, genre]
+      properties:
+        artist: { type: string, maxLength: 160 }
+        title: { type: string, maxLength: 160 }
+        artworkUrl: { type: ["string", "null"] }
+        genre: { type: string, maxLength: 80 }
+    ListenerCount:
+      type: object
+      required: [count]
+      properties:
+        count: { type: integer, minimum: 0 }
+    ChatMessage:
+      type: object
+      required: [id, nickname, message, createdAt]
+      properties:
+        id: { type: integer }
+        nickname: { type: string }
+        message: { type: string }
+        createdAt: { type: string, format: date-time }
+    ChatMessageInput:
+      type: object
+      required: [nickname, message]
+      properties:
+        nickname: { type: string, minLength: 2, maxLength: 32 }
+        message: { type: string, minLength: 1, maxLength: 500 }
+    AdminLoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+    AdminSession:
+      type: object
+      required: [authenticated, email]
+      properties:
+        authenticated: { type: boolean }
+        email: { type: string }
+    BroadcasterHeartbeat:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [CONNECTED, STREAMING, DISCONNECTED, RECONNECTING]
+        bitrateKbps: { type: ["number", "null"] }
+        sampleRate: { type: ["integer", "null"] }
+        contentType: { type: ["string", "null"] }
+    BroadcasterPairInput:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 128 }
+        deviceId: { type: string, maxLength: 128 }
+        deviceName: { type: string, maxLength: 120 }
+    BroadcasterPair:
+      type: object
+      required: [stationName, deviceId, displayName, publishToken, publishEndpoint, publicStreamEndpoint, heartbeatEndpoint, telemetryEndpoint, intentEndpoint, commandsEndpoint, format]
+      properties:
+        stationName: { type: string }
+        deviceId: { type: string }
+        displayName: { type: string }
+        publishToken: { type: string }
+        publishEndpoint: { type: string, format: uri }
+        publicStreamEndpoint: { type: string, format: uri }
+        heartbeatEndpoint: { type: string, format: uri }
+        telemetryEndpoint: { type: string, format: uri }
+        intentEndpoint: { type: string, format: uri }
+        commandsEndpoint: { type: string, format: uri }
+        format: { type: string }
+    BroadcasterCommands:
+      type: object
+      required: [deviceId, commands]
+      properties:
+        deviceId: { type: string }
+        commands:
+          type: array
+          items: { type: object, additionalProperties: true }
+    BroadcasterTelemetryInput:
+      type: object
+      properties:
+        status: { type: string, maxLength: 64 }
+        bitrateKbps: { type: ["number", "null"], minimum: 0 }
+        sampleRate: { type: ["integer", "null"], minimum: 1 }
+        contentType: { type: ["string", "null"], maxLength: 120 }
+        bytesSent: { type: ["integer", "null"], minimum: 0 }
+        detail: { type: ["string", "null"], maxLength: 500 }
+    BroadcasterIntentInput:
+      type: object
+      required: [intent]
+      properties:
+        intent: { type: string, minLength: 1, maxLength: 120 }
+        payload: { type: object, additionalProperties: true }
+    BroadcasterIntentResult:
+      type: object
+      required: [accepted, intent]
+      properties:
+        accepted: { type: boolean }
+        intent: { type: string }
+    DiagnosticCheck:
+      type: object
+      required: [name, status, detail]
+      properties:
+        name: { type: string }
+        status: { type: string, enum: [pass, fail, warn] }
+        detail: { type: string }
+    Diagnostics:
+      type: object
+      required: [checks]
+      properties:
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosticCheck"
