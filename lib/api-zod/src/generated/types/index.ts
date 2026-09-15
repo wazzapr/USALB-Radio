@@ -8,6 +8,7 @@
 
 export * from './broadcasterCommands';
 export * from './broadcasterCommandsCommandsItem';
+export * from './broadcasterConnection';
 export * from './broadcasterHeartbeat';
 export * from './broadcasterHeartbeatStatus';
 export * from './broadcasterIntentInput';

@@ -156,13 +156,50 @@ export interface BroadcasterPair {
   deviceId: string;
   displayName: string;
   publishToken: string;
+  streamPassword: string;
   publishEndpoint: string;
   publicStreamEndpoint: string;
   heartbeatEndpoint: string;
   telemetryEndpoint: string;
   intentEndpoint: string;
   commandsEndpoint: string;
+  hostname: string;
+  serverAddress: string;
+  /**
+     * @minimum 1
+     * @maximum 65535
+     */
+  port: number;
+  protocol: string;
+  connectionType: string;
+  codec: string;
+  /** @minimum 1 */
+  bitrateKbps: number;
+  /** @minimum 1 */
+  sampleRate: number;
+  channels: string;
   format: string;
+}
+
+export interface BroadcasterConnection {
+  stationName: string;
+  hostname: string;
+  serverAddress: string;
+  /**
+     * @minimum 1
+     * @maximum 65535
+     */
+  port: number;
+  protocol: string;
+  connectionType: string;
+  codec: string;
+  /** @minimum 1 */
+  bitrateKbps: number;
+  /** @minimum 1 */
+  sampleRate: number;
+  channels: string;
+  publishEndpoint: string;
+  publicStreamEndpoint: string;
 }
 
 export type BroadcasterCommandsCommandsItem = { [key: string]: unknown };
