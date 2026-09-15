@@ -21,6 +21,8 @@ Copy `.env.example` into your environment and set:
 
 - `DATABASE_URL`: the Replit PostgreSQL connection
 - `BROADCASTER_PAIRING_CODE`: the code the Windows broadcaster enters
+- `PUBLIC_SERVER_URL`: the canonical published HTTPS URL used in broadcaster
+  connection settings
 - `PUBLIC_RADIO_STREAM_URL`: normally `/api/radio-stream`
 
 The station control room is intentionally open and does not use email,

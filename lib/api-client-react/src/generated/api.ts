@@ -21,6 +21,7 @@ import type {
 
 import type {
   BroadcasterCommands,
+  BroadcasterConnection,
   BroadcasterHeartbeat,
   BroadcasterIntentInput,
   BroadcasterIntentResult,
@@ -1030,6 +1031,83 @@ export const usePairBroadcaster = <TError = ErrorType<void>,
       > => {
       return useMutation(getPairBroadcasterMutationOptions(options));
     }
+
+export const getGetBroadcasterConnectionUrl = () => {
+
+
+
+
+  return `/api/broadcaster/connection`
+}
+
+/**
+ * @summary Get public broadcaster connection settings without credentials
+ */
+export const getBroadcasterConnection = async ( options?: Parameters<typeof customFetch>[1]): Promise<BroadcasterConnection> => {
+
+  return customFetch<BroadcasterConnection>(getGetBroadcasterConnectionUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBroadcasterConnectionQueryKey = () => {
+    return [
+    `/api/broadcaster/connection`
+    ] as const;
+    }
+
+
+export const getGetBroadcasterConnectionQueryOptions = <TData = Awaited<ReturnType<typeof getBroadcasterConnection>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBroadcasterConnection>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBroadcasterConnectionQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBroadcasterConnection>>> = ({ signal }) => getBroadcasterConnection({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBroadcasterConnection>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBroadcasterConnectionQueryResult = NonNullable<Awaited<ReturnType<typeof getBroadcasterConnection>>>
+export type GetBroadcasterConnectionQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get public broadcaster connection settings without credentials
+ */
+
+export function useGetBroadcasterConnection<TData = Awaited<ReturnType<typeof getBroadcasterConnection>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBroadcasterConnection>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBroadcasterConnectionQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetBroadcasterCommandsUrl = () => {
 
