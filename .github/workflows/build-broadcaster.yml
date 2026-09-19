@@ -1,0 +1,62 @@
+name: Build USALB Broadcaster
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "broadcaster/windows/**"
+      - "broadcaster/setup-usabl-broadcaster.ps1"
+      - ".github/workflows/build-broadcaster.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: broadcaster/windows
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore USALBBroadcaster.csproj
+
+      - name: Publish broadcaster
+        run: dotnet publish USALBBroadcaster.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+
+      - name: Download FFmpeg
+        shell: powershell
+        run: |
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "$env:RUNNER_TEMP\ffmpeg.zip"
+          Expand-Archive "$env:RUNNER_TEMP\ffmpeg.zip" "$env:RUNNER_TEMP\ffmpeg"
+          $exe = Get-ChildItem "$env:RUNNER_TEMP\ffmpeg" -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          Copy-Item $exe.FullName "publish\ffmpeg.exe"
+
+      - name: Create portable package
+        shell: powershell
+        run: |
+          Set-Content -Path "publish\README.txt" -Value "USALB Broadcaster. Run USALBBroadcaster.exe."
+          Compress-Archive -Path "publish\*" -DestinationPath "$env:GITHUB_WORKSPACE\USALB-Broadcaster-Windows.zip" -Force
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: broadcaster-latest
+          name: USALB Broadcaster Latest
+          body: |
+            Latest Windows build of USALB Broadcaster.
+            Download the ZIP, extract it, and run USALBBroadcaster.exe.
+          files: USALB-Broadcaster-Windows.zip
+          make_latest: true
+          prerelease: false
+          fail_on_unmatched_files: true
