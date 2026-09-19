@@ -1,0 +1,181 @@
+using System.Diagnostics;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using NAudio.Wave;
+
+const string DefaultServer = "https://usalb-radio--applauncher.replit.app";
+var serverUrl = args.Length > 0 ? args[0] : "";
+var pairingCode = args.Length > 1 ? args[1] : "";
+
+if (string.IsNullOrWhiteSpace(serverUrl))
+{
+    Console.Write($"USALB server URL [{DefaultServer}]: ");
+    serverUrl = Console.ReadLine();
+}
+serverUrl = string.IsNullOrWhiteSpace(serverUrl) ? DefaultServer : serverUrl.Trim().TrimEnd('/');
+if (serverUrl.EndsWith("/admin", StringComparison.OrdinalIgnoreCase))
+    serverUrl = serverUrl[..^6].TrimEnd('/');
+
+var credentialsPath = Path.Combine(AppContext.BaseDirectory, "credentials.json");
+Credential? credentials = null;
+
+if (File.Exists(credentialsPath))
+{
+    try
+    {
+        credentials = JsonSerializer.Deserialize<Credential>(File.ReadAllText(credentialsPath));
+        Console.WriteLine($"Using saved broadcaster credentials for {credentials?.DeviceId}.");
+    }
+    catch { credentials = null; }
+}
+
+using var http = new HttpClient();
+
+if (credentials is null)
+{
+    if (string.IsNullOrWhiteSpace(pairingCode))
+    {
+        Console.Write("Enter the USALB broadcaster pairing code: ");
+        pairingCode = Console.ReadLine() ?? "";
+    }
+
+    var pairJson = JsonSerializer.Serialize(new { code = pairingCode, deviceName = "USALB Windows Broadcaster" });
+    using var pairResponse = await http.PostAsync(
+        serverUrl + "/api/broadcaster/pair",
+        new StringContent(pairJson, Encoding.UTF8, "application/json"));
+
+    pairResponse.EnsureSuccessStatusCode();
+    var body = await pairResponse.Content.ReadAsStringAsync();
+    credentials = JsonSerializer.Deserialize<Credential>(body)
+        ?? throw new Exception("The server returned invalid broadcaster credentials.");
+
+    File.WriteAllText(credentialsPath, JsonSerializer.Serialize(credentials, new JsonSerializerOptions { WriteIndented = true }));
+    Console.WriteLine("Paired successfully.");
+}
+
+Console.WriteLine("USALB Broadcaster");
+Console.WriteLine("System-audio loopback capture: READY");
+Console.WriteLine("Press Ctrl+C to stop.");
+Console.WriteLine();
+
+var heartbeatCts = new CancellationTokenSource();
+var heartbeatTask = HeartbeatLoop(credentials!, heartbeatCts.Token);
+
+using var loopback = new WasapiLoopbackCapture();
+var ffmpeg = StartFfmpeg(credentials!);
+using var stdin = ffmpeg.StandardInput.BaseStream;
+
+loopback.DataAvailable += (_, e) =>
+{
+    try
+    {
+        stdin.Write(e.Buffer, 0, e.BytesRecorded);
+        stdin.Flush();
+    }
+    catch { }
+};
+
+loopback.RecordingStopped += (_, e) =>
+{
+    try { stdin.Close(); } catch { }
+};
+
+Console.WriteLine("Streaming Windows system audio to USALB...");
+loopback.StartRecording();
+
+try
+{
+    await Task.Delay(Timeout.InfiniteTimeSpan);
+}
+catch (TaskCanceledException) { }
+finally
+{
+    try { loopback.StopRecording(); } catch { }
+    try { stdin.Close(); } catch { }
+    try { if (!ffmpeg.HasExited) ffmpeg.Kill(true); } catch { }
+    heartbeatCts.Cancel();
+    try { await heartbeatTask; } catch { }
+}
+
+static Process StartFfmpeg(Credential c)
+{
+    var headers = $"Authorization: Bearer {c.PublishToken}\r\nContent-Type: audio/mpeg\r\n";
+    var psi = new ProcessStartInfo("ffmpeg.exe")
+    {
+        UseShellExecute = false,
+        RedirectStandardInput = true,
+        RedirectStandardError = true,
+        CreateNoWindow = true
+    };
+
+    psi.ArgumentList.Add("-hide_banner");
+    psi.ArgumentList.Add("-loglevel");
+    psi.ArgumentList.Add("warning");
+    psi.ArgumentList.Add("-f");
+    psi.ArgumentList.Add("f32le");
+    psi.ArgumentList.Add("-ar");
+    psi.ArgumentList.Add("48000");
+    psi.ArgumentList.Add("-ac");
+    psi.ArgumentList.Add("2");
+    psi.ArgumentList.Add("-i");
+    psi.ArgumentList.Add("pipe:0");
+    psi.ArgumentList.Add("-c:a");
+    psi.ArgumentList.Add("libmp3lame");
+    psi.ArgumentList.Add("-b:a");
+    psi.ArgumentList.Add("128k");
+    psi.ArgumentList.Add("-f");
+    psi.ArgumentList.Add("mp3");
+    psi.ArgumentList.Add("-flush_packets");
+    psi.ArgumentList.Add("1");
+    psi.ArgumentList.Add("-method");
+    psi.ArgumentList.Add("POST");
+    psi.ArgumentList.Add("-headers");
+    psi.ArgumentList.Add(headers);
+    psi.ArgumentList.Add(c.PublishEndpoint);
+
+    var p = Process.Start(psi) ?? throw new Exception("Could not start FFmpeg.");
+    _ = Task.Run(async () =>
+    {
+        while (!p.StandardError.EndOfStream)
+        {
+            var line = await p.StandardError.ReadLineAsync();
+            if (!string.IsNullOrWhiteSpace(line)) Console.WriteLine(line);
+        }
+    });
+    return p;
+}
+
+static async Task HeartbeatLoop(Credential c, CancellationToken token)
+{
+    using var client = new HttpClient();
+    while (!token.IsCancellationRequested)
+    {
+        try
+        {
+            var payload = JsonSerializer.Serialize(new
+            {
+                status = "STREAMING",
+                contentType = "audio/mpeg",
+                sampleRate = 48000,
+                bitrateKbps = 128
+            });
+            using var req = new HttpRequestMessage(HttpMethod.Post, c.HeartbeatEndpoint);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", c.PublishToken);
+            req.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+            await client.SendAsync(req, token);
+        }
+        catch { }
+
+        try { await Task.Delay(TimeSpan.FromSeconds(10), token); }
+        catch { break; }
+    }
+}
+
+sealed class Credential
+{
+    public string DeviceId { get; set; } = "";
+    public string PublishEndpoint { get; set; } = "";
+    public string PublishToken { get; set; } = "";
+    public string HeartbeatEndpoint { get; set; } = "";
+}
