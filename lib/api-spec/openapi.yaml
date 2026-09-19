@@ -200,6 +200,18 @@ paths:
           description: Invalid pairing code
         "503":
           description: Pairing is not configured
+  /broadcaster/connection:
+    get:
+      operationId: getBroadcasterConnection
+      tags: [broadcaster]
+      summary: Get public broadcaster connection settings without credentials
+      responses:
+        "200":
+          description: Current source connection settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BroadcasterConnection"
   /broadcaster/commands:
     get:
       operationId: getBroadcasterCommands
@@ -421,19 +433,45 @@ components:
         deviceName: { type: string, maxLength: 120 }
     BroadcasterPair:
       type: object
-      required: [stationName, deviceId, displayName, publishToken, publishEndpoint, publicStreamEndpoint, heartbeatEndpoint, telemetryEndpoint, intentEndpoint, commandsEndpoint, format]
+      required: [stationName, deviceId, displayName, publishToken, streamPassword, publishEndpoint, publicStreamEndpoint, heartbeatEndpoint, telemetryEndpoint, intentEndpoint, commandsEndpoint, hostname, serverAddress, port, protocol, connectionType, codec, bitrateKbps, sampleRate, channels, format]
       properties:
         stationName: { type: string }
         deviceId: { type: string }
         displayName: { type: string }
         publishToken: { type: string }
+        streamPassword: { type: string }
         publishEndpoint: { type: string, format: uri }
         publicStreamEndpoint: { type: string, format: uri }
         heartbeatEndpoint: { type: string, format: uri }
         telemetryEndpoint: { type: string, format: uri }
         intentEndpoint: { type: string, format: uri }
         commandsEndpoint: { type: string, format: uri }
+        hostname: { type: string }
+        serverAddress: { type: string }
+        port: { type: integer, minimum: 1, maximum: 65535 }
+        protocol: { type: string }
+        connectionType: { type: string }
+        codec: { type: string }
+        bitrateKbps: { type: integer, minimum: 1 }
+        sampleRate: { type: integer, minimum: 1 }
+        channels: { type: string }
         format: { type: string }
+    BroadcasterConnection:
+      type: object
+      required: [stationName, hostname, serverAddress, port, protocol, connectionType, codec, bitrateKbps, sampleRate, channels, publishEndpoint, publicStreamEndpoint]
+      properties:
+        stationName: { type: string }
+        hostname: { type: string }
+        serverAddress: { type: string }
+        port: { type: integer, minimum: 1, maximum: 65535 }
+        protocol: { type: string }
+        connectionType: { type: string }
+        codec: { type: string }
+        bitrateKbps: { type: integer, minimum: 1 }
+        sampleRate: { type: integer, minimum: 1 }
+        channels: { type: string }
+        publishEndpoint: { type: string, format: uri }
+        publicStreamEndpoint: { type: string, format: uri }
     BroadcasterCommands:
       type: object
       required: [deviceId, commands]

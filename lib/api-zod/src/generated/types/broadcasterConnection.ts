@@ -6,18 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface BroadcasterPair {
+export interface BroadcasterConnection {
   stationName: string;
-  deviceId: string;
-  displayName: string;
-  publishToken: string;
-  streamPassword: string;
-  publishEndpoint: string;
-  publicStreamEndpoint: string;
-  heartbeatEndpoint: string;
-  telemetryEndpoint: string;
-  intentEndpoint: string;
-  commandsEndpoint: string;
   hostname: string;
   serverAddress: string;
   /**
@@ -33,5 +23,6 @@ export interface BroadcasterPair {
   /** @minimum 1 */
   sampleRate: number;
   channels: string;
-  format: string;
+  publishEndpoint: string;
+  publicStreamEndpoint: string;
 }

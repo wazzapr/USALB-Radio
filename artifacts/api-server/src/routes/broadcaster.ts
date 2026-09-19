@@ -5,6 +5,7 @@ import {
   BroadcasterIntentBody,
   BroadcasterIntentResponse,
   BroadcasterTelemetryBody,
+  GetBroadcasterConnectionResponse,
   GetBroadcasterCommandsResponse,
   PairBroadcasterBody,
   PairBroadcasterResponse,
@@ -16,9 +17,31 @@ import { beginIngest, endIngest, getStreamSnapshot, ingestChunk, openListener } 
 const router: IRouter = Router();
 
 function requestBaseUrl(req: Request): string {
+  const configuredUrl = process.env.PUBLIC_SERVER_URL?.trim().replace(/\/+$/, "");
+  if (configuredUrl) return configuredUrl;
   const forwardedProto = req.header("x-forwarded-proto")?.split(",")[0]?.trim();
   const protocol = forwardedProto || req.protocol;
   return `${protocol}://${req.get("host")}`;
+}
+
+function connectionDetails(req: Request) {
+  const base = requestBaseUrl(req);
+  const parsed = new URL(base);
+  const port = parsed.protocol === "https:" ? 443 : Number(parsed.port || 80);
+  return {
+    stationName: "USALB Radio",
+    hostname: parsed.hostname,
+    serverAddress: base,
+    port,
+    protocol: parsed.protocol === "https:" ? "HTTPS" : "HTTP",
+    connectionType: "Chunked HTTP POST source ingest",
+    codec: "MP3",
+    bitrateKbps: 128,
+    sampleRate: 44100,
+    channels: "Stereo",
+    publishEndpoint: `${base}/api/radio-ingest`,
+    publicStreamEndpoint: `${base}/api/radio-stream`,
+  };
 }
 
 function secureEquals(left: string, right: string): boolean {
@@ -74,19 +97,23 @@ router.post("/broadcaster/pair", async (req, res): Promise<void> => {
   }
 
   const base = requestBaseUrl(req);
+  const details = connectionDetails(req);
   res.json(PairBroadcasterResponse.parse({
-    stationName: "USALB Radio",
     deviceId: device.deviceId,
     displayName: device.displayName,
     publishToken: device.publishToken,
-    publishEndpoint: `${base}/api/radio-ingest`,
-    publicStreamEndpoint: `${base}/api/radio-stream`,
+    streamPassword: device.publishToken,
+    ...details,
     heartbeatEndpoint: `${base}/api/broadcaster/heartbeat`,
     telemetryEndpoint: `${base}/api/broadcaster/telemetry`,
     intentEndpoint: `${base}/api/broadcaster/intent`,
     commandsEndpoint: `${base}/api/broadcaster/commands`,
     format: "audio/mpeg; codec=mp3; 44100 Hz; stereo; 128 kbps",
   }));
+});
+
+router.get("/broadcaster/connection", (req, res): void => {
+  res.json(GetBroadcasterConnectionResponse.parse(connectionDetails(req)));
 });
 
 router.get("/broadcaster/commands", async (req, res): Promise<void> => {

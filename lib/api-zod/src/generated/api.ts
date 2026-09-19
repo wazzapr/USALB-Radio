@@ -225,18 +225,59 @@ export const PairBroadcasterBody = zod.object({
   "deviceName": zod.string().max(pairBroadcasterBodyDeviceNameMax).optional()
 })
 
+export const pairBroadcasterResponsePortMax = 65535;
+
+
+
+
+
 export const PairBroadcasterResponse = zod.object({
   "stationName": zod.string(),
   "deviceId": zod.string(),
   "displayName": zod.string(),
   "publishToken": zod.string(),
+  "streamPassword": zod.string(),
   "publishEndpoint": zod.string().url(),
   "publicStreamEndpoint": zod.string().url(),
   "heartbeatEndpoint": zod.string().url(),
   "telemetryEndpoint": zod.string().url(),
   "intentEndpoint": zod.string().url(),
   "commandsEndpoint": zod.string().url(),
+  "hostname": zod.string(),
+  "serverAddress": zod.string(),
+  "port": zod.number().int().min(1).max(pairBroadcasterResponsePortMax),
+  "protocol": zod.string(),
+  "connectionType": zod.string(),
+  "codec": zod.string(),
+  "bitrateKbps": zod.number().int().min(1),
+  "sampleRate": zod.number().int().min(1),
+  "channels": zod.string(),
   "format": zod.string()
+})
+
+
+/**
+ * @summary Get public broadcaster connection settings without credentials
+ */
+export const getBroadcasterConnectionResponsePortMax = 65535;
+
+
+
+
+
+export const GetBroadcasterConnectionResponse = zod.object({
+  "stationName": zod.string(),
+  "hostname": zod.string(),
+  "serverAddress": zod.string(),
+  "port": zod.number().int().min(1).max(getBroadcasterConnectionResponsePortMax),
+  "protocol": zod.string(),
+  "connectionType": zod.string(),
+  "codec": zod.string(),
+  "bitrateKbps": zod.number().int().min(1),
+  "sampleRate": zod.number().int().min(1),
+  "channels": zod.string(),
+  "publishEndpoint": zod.string().url(),
+  "publicStreamEndpoint": zod.string().url()
 })
 
 
