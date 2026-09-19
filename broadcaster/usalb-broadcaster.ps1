@@ -92,7 +92,7 @@ function Start-Ffmpeg {
   param($credentials)
 
   $headers = "Authorization: Bearer $($credentials.publishToken)" + [Environment]::NewLine + "Content-Type: audio/mpeg"
-  $common = @("-hide_banner", "-loglevel", "warning")
+  $common = @("-hide_banner", "-loglevel", "warning", "-nostdin")
 
   if ([string]::IsNullOrWhiteSpace($MicrophoneDevice)) {
     $args = $common + @(
