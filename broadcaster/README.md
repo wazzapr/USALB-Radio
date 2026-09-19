@@ -1,39 +1,88 @@
-# USALB Broadcaster connection model
+# USALB Broadcaster for Windows
 
-USALB Broadcaster uses the same simple station-connection model as a traditional SHOUTcast/ICEcast source client, but connects directly to the USALB server.
+This is the broadcaster side of the USALB Radio architecture:
 
-## Station connection
+```text
+Windows system audio -> FFmpeg MP3 encoder -> POST /api/radio-ingest
+                                             -> USALB public /api/radio-stream
+                                             -> phone / desktop listeners
+```
 
-The broadcaster needs these values:
+USALB is the streaming server. No Listen2MyRadio account or external radio
+provider is required.
 
-- **Station name** — display name, normally `USALB Radio`.
-- **Hostname** — the public USALB server hostname, for example `usalbtv.com`.
-- **Address** — the same server address/hostname used for the connection; this is kept as a separate field for a BUTT-style UI.
-- **Port** — normally `443` when the station is served over HTTPS.
-- **Stream password** — the broadcaster's private publish token returned by pairing. This is not the public Control Room password.
-- **Protocol** — USALB authenticated stream.
-- **Codec** — MP3.
-- **Bitrate** — 128 kbps by default.
-- **Sample rate** — 44.1 kHz by default.
-- **Channels** — stereo by default.
+## One-time server setup
 
-## Connection sequence
+Set these Replit environment variables:
 
-1. The broadcaster pairs once using the station pairing code.
-2. The server returns a unique `publishToken` for that broadcaster device.
-3. The broadcaster stores that token securely as its stream password.
-4. When the user presses **Connect**, the broadcaster authenticates with that token.
-5. When the user presses **Go Live**, it opens one persistent connection to the server's `publishEndpoint` and continuously sends encoded MP3 audio.
-6. The server publishes that audio through its public `publicStreamEndpoint`.
-7. When the user presses **Stop**, the persistent ingest connection is closed and the station becomes offline.
+- `BROADCASTER_PAIRING_CODE`: the code entered by the broadcaster
+- `PUBLIC_SERVER_URL`: the canonical HTTPS URL shown by the Control Room
+- `PUBLIC_RADIO_STREAM_URL`: normally `/api/radio-stream`
+The pairing code is only used to exchange credentials. Pairing does not test
+audio and does not require the broadcaster to be streaming.
 
-The current API returns the following connection values from `/api/broadcaster/pair`:
+## Install on Windows
 
-- `publishEndpoint` — authenticated source/ingest endpoint
-- `publicStreamEndpoint` — listener stream endpoint
-- `heartbeatEndpoint` — connection telemetry
-- `telemetryEndpoint` — stream telemetry
-- `intentEndpoint` — broadcaster intents
-- `commandsEndpoint` — remote commands
+1. Install FFmpeg and make sure `ffmpeg.exe` is on PATH.
+2. Run `ffmpeg -devices` and confirm the Windows audio capture device is
+   available.
+3. Use Windows audio loopback/system audio as the source. Do not choose a
+   microphone. Depending on the FFmpeg build, this is usually the WASAPI
+   `default` loopback device or a device exposed by VoiceMeeter / Stereo Mix.
+4. Download `USALB-Broadcaster-Windows.zip` from the Control Room and extract it.
+5. Double-click `install-usabl-broadcaster.bat`.
 
-This is intentionally a USALB-native source protocol. Listen2MyRadio and an external SHOUTcast provider are not required.
+To list WASAPI devices:
+
+```powershell
+ffmpeg -hide_banner -list_devices true -f wasapi -i dummy
+```
+
+## Start
+
+The installer checks for FFmpeg, optionally installs it with `winget`, asks for
+the pairing code and Windows audio device, and then starts the broadcaster.
+For manual startup, open PowerShell in this folder and run:
+
+```powershell
+.\usalb-broadcaster.ps1 `
+  -ServerUrl "https://usalb-radio--applauncher.replit.app" `
+  -PairingCode "YOUR_PAIRING_CODE" `
+  -AudioDevice "default"
+```
+
+The script:
+
+1. Calls `POST /api/broadcaster/pair`.
+2. Saves the returned device ID and publish token locally.
+3. Sends heartbeat and telemetry requests.
+4. Opens one authenticated, persistent `POST /api/radio-ingest`.
+5. Encodes Windows system audio as MP3, 44.1 kHz, stereo, 128 kbps.
+6. Reconnects the ingest connection if FFmpeg exits.
+
+The pairing response contains the real persistent publish endpoint,
+`/api/radio-ingest`, and the public listener endpoint,
+`/api/radio-stream`. The response is returned even when no audio is present.
+
+## Verify from a phone
+
+Open the station website and press Play. The player uses the public USALB
+relay endpoint, not the broadcaster endpoint. The admin diagnostics should
+show:
+
+- authenticated broadcaster connection
+- audio bytes received
+- public stream available
+- `audio/mpeg` mobile-compatible content
+
+If the broadcaster is connected but no bytes are received, the issue is the
+Windows audio capture device or FFmpeg input, not pairing.
+
+## Security notes
+
+- Keep the pairing code private.
+- Keep the generated `credentials.json` file private. It contains the
+  broadcaster publish token.
+- The publish token grants audio publishing only; it is never sent to browser
+  listeners.
+- The listener endpoint is read-only and does not accept broadcaster tokens.
