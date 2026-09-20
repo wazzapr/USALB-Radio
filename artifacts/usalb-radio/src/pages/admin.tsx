@@ -52,13 +52,16 @@ function CopyableValue({ label, value, copyValue = value, secret = false }: { la
 function BroadcasterConnectionPanel() {
   const connection = useGetBroadcasterConnection({ query: { queryKey: getGetBroadcasterConnectionQueryKey(), refetchInterval: 30000 } });
   const pair = usePairBroadcaster();
-  const [pairingCode, setPairingCode] = useState('');
+  const [pairingCode, setPairingCode] = useState(() => {
+    try { return window.localStorage.getItem('usalb-admin-pairing-code') || ''; } catch { return ''; }
+  });
   const [deviceName, setDeviceName] = useState('USALB Windows Broadcaster');
   const [credentials, setCredentials] = useState<BroadcasterPair>();
   const details: BroadcasterConnection | BroadcasterPair | undefined = credentials || connection.data;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!pairingCode.trim()) return;
+    try { window.localStorage.setItem('usalb-admin-pairing-code', pairingCode.trim()); } catch { /* ignore storage errors */ }
     pair.mutate({ data: { code: pairingCode.trim(), deviceName } }, { onSuccess: (result) => setCredentials(result) });
   };
   const streamPassword = credentials?.streamPassword;
