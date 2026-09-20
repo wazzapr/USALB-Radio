@@ -85,15 +85,32 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
   const toggle = async () => {
     if (playing) { audioRef.current?.pause(); setPlaying(false); return; }
     if (!streamUrl || unavailable) return;
-    setAudioError(false); setConnecting(true);
+
+    setAudioError(false);
+    setConnecting(true);
+
     const audio = audioRef.current || new Audio();
     audioRef.current = audio;
-    audio.src = streamUrl; audio.preload = 'none'; audio.volume = volume;
+
+    // Always create a fresh stream request. This prevents a previous 503/error
+    // response from being reused by the browser when the broadcaster is live.
+    const separator = streamUrl.includes('?') ? '&' : '?';
+    audio.src = `${streamUrl}${separator}live=${Date.now()}`;
+    audio.preload = 'none';
+    audio.volume = volume;
     audio.onplaying = () => { setConnecting(false); setPlaying(true); };
     audio.onpause = () => setPlaying(false);
     audio.onerror = () => { setConnecting(false); setPlaying(false); setAudioError(true); };
-    try { await audio.play(); } catch { setConnecting(false); setAudioError(true); }
+
+    try {
+      audio.load();
+      await audio.play();
+    } catch {
+      setConnecting(false);
+      setAudioError(true);
+    }
   };
+
   const retry = () => { setAudioError(false); void toggle(); };
   const label = audioError || state === 'ERROR' ? 'Retry live stream' : connecting ? 'Connecting to live stream' : playing ? 'Pause live stream' : unavailable ? 'Live stream unavailable' : 'Listen live';
 
