@@ -115,7 +115,7 @@ static Process StartFfmpeg(Credential c)
     psi.ArgumentList.Add("-f");
     psi.ArgumentList.Add("f32le");
     psi.ArgumentList.Add("-ar");
-    psi.ArgumentList.Add("48000");
+    psi.ArgumentList.Add("44100");
     psi.ArgumentList.Add("-ac");
     psi.ArgumentList.Add("2");
     psi.ArgumentList.Add("-i");
@@ -127,6 +127,8 @@ static Process StartFfmpeg(Credential c)
     psi.ArgumentList.Add("-f");
     psi.ArgumentList.Add("mp3");
     psi.ArgumentList.Add("-flush_packets");
+    psi.ArgumentList.Add("1");
+    psi.ArgumentList.Add("-chunked_post");
     psi.ArgumentList.Add("1");
     psi.ArgumentList.Add("-method");
     psi.ArgumentList.Add("POST");
