@@ -66,7 +66,8 @@ var heartbeatCts = new CancellationTokenSource();
 var heartbeatTask = HeartbeatLoop(credentials!, heartbeatCts.Token);
 
 using var loopback = new WasapiLoopbackCapture();
-var ffmpeg = StartFfmpeg(credentials!);
+Console.WriteLine($"System-audio format: {loopback.WaveFormat.SampleRate} Hz, {loopback.WaveFormat.Channels} channels, {loopback.WaveFormat.Encoding}");
+var ffmpeg = StartFfmpeg(credentials!, loopback.WaveFormat);
 using var stdin = ffmpeg.StandardInput.BaseStream;
 
 loopback.DataAvailable += (_, e) =>
@@ -101,7 +102,7 @@ finally
     try { await heartbeatTask; } catch { }
 }
 
-static Process StartFfmpeg(Credential c)
+static Process StartFfmpeg(Credential c, WaveFormat inputFormat)
 {
     var headers = $"Authorization: Bearer {c.PublishToken}\r\nContent-Type: audio/mpeg\r\n";
     var psi = new ProcessStartInfo("ffmpeg.exe")
@@ -118,13 +119,17 @@ static Process StartFfmpeg(Credential c)
     psi.ArgumentList.Add("-f");
     psi.ArgumentList.Add("f32le");
     psi.ArgumentList.Add("-ar");
-    psi.ArgumentList.Add("44100");
+    psi.ArgumentList.Add(inputFormat.SampleRate.ToString());
     psi.ArgumentList.Add("-ac");
-    psi.ArgumentList.Add("2");
+    psi.ArgumentList.Add(inputFormat.Channels.ToString());
     psi.ArgumentList.Add("-i");
     psi.ArgumentList.Add("pipe:0");
     psi.ArgumentList.Add("-c:a");
     psi.ArgumentList.Add("libmp3lame");
+    psi.ArgumentList.Add("-ar");
+    psi.ArgumentList.Add("44100");
+    psi.ArgumentList.Add("-ac");
+    psi.ArgumentList.Add("2");
     psi.ArgumentList.Add("-b:a");
     psi.ArgumentList.Add("128k");
     psi.ArgumentList.Add("-f");
