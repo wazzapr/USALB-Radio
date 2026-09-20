@@ -21,6 +21,15 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 const server = createServer(app);
+
+// The broadcaster uses one long-lived HTTP POST for live audio. Node 24's
+// default requestTimeout is 5 minutes, which would silently kill a healthy
+// broadcast even though the app itself has no 5-minute limit.
+server.requestTimeout = 0;
+server.timeout = 0;
+server.keepAliveTimeout = 75_000;
+server.headersTimeout = 0;
+
 const webSocketServer = new WebSocketServer({ noServer: true });
 
 webSocketServer.on("connection", (socket) => {
