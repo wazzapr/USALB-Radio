@@ -24,7 +24,7 @@ if (File.Exists(credentialsPath))
 {
     try
     {
-        credentials = JsonSerializer.Deserialize<Credential>(File.ReadAllText(credentialsPath));
+        credentials = JsonSerializer.Deserialize<Credential>(File.ReadAllText(credentialsPath, Encoding.UTF8), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         Console.WriteLine($"Using saved broadcaster credentials for {credentials?.DeviceId}.");
     }
     catch { credentials = null; }
@@ -47,8 +47,11 @@ if (credentials is null)
 
     pairResponse.EnsureSuccessStatusCode();
     var body = await pairResponse.Content.ReadAsStringAsync();
-    credentials = JsonSerializer.Deserialize<Credential>(body)
+    credentials = JsonSerializer.Deserialize<Credential>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
         ?? throw new Exception("The server returned invalid broadcaster credentials.");
+
+    if (string.IsNullOrWhiteSpace(credentials.PublishEndpoint) || string.IsNullOrWhiteSpace(credentials.PublishToken))
+        throw new Exception("The server returned incomplete broadcaster credentials.");
 
     File.WriteAllText(credentialsPath, JsonSerializer.Serialize(credentials, new JsonSerializerOptions { WriteIndented = true }));
     Console.WriteLine("Paired successfully.");
@@ -159,7 +162,7 @@ static async Task HeartbeatLoop(Credential c, CancellationToken token)
             {
                 status = "STREAMING",
                 contentType = "audio/mpeg",
-                sampleRate = 48000,
+                sampleRate = 44100,
                 bitrateKbps = 128
             });
             using var req = new HttpRequestMessage(HttpMethod.Post, c.HeartbeatEndpoint);
