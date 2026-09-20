@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
+using System.IO.Pipelines;
 using System.Text;
 using System.Text.Json;
 using NAudio.Wave;
@@ -69,6 +70,8 @@ using var loopback = new WasapiLoopbackCapture();
 Console.WriteLine($"System-audio format: {loopback.WaveFormat.SampleRate} Hz, {loopback.WaveFormat.Channels} channels, {loopback.WaveFormat.Encoding}");
 var ffmpeg = StartFfmpeg(credentials!, loopback.WaveFormat);
 using var stdin = ffmpeg.StandardInput.BaseStream;
+using var uploadCts = new CancellationTokenSource();
+var uploadTask = UploadAudioAsync(credentials!, ffmpeg, uploadCts.Token);
 
 loopback.DataAvailable += (_, e) =>
 {
@@ -97,18 +100,20 @@ finally
 {
     try { loopback.StopRecording(); } catch { }
     try { stdin.Close(); } catch { }
+    uploadCts.Cancel();
     try { if (!ffmpeg.HasExited) ffmpeg.Kill(true); } catch { }
     heartbeatCts.Cancel();
     try { await heartbeatTask; } catch { }
+    try { await uploadTask; } catch (Exception ex) { Console.WriteLine($"Audio upload stopped: {ex.Message}"); }
 }
 
 static Process StartFfmpeg(Credential c, WaveFormat inputFormat)
 {
-    var headers = $"Authorization: Bearer {c.PublishToken}\r\nContent-Type: audio/mpeg\r\n";
     var psi = new ProcessStartInfo("ffmpeg.exe")
     {
         UseShellExecute = false,
         RedirectStandardInput = true,
+        RedirectStandardOutput = true,
         RedirectStandardError = true,
         CreateNoWindow = true
     };
@@ -136,13 +141,7 @@ static Process StartFfmpeg(Credential c, WaveFormat inputFormat)
     psi.ArgumentList.Add("mp3");
     psi.ArgumentList.Add("-flush_packets");
     psi.ArgumentList.Add("1");
-    psi.ArgumentList.Add("-chunked_post");
-    psi.ArgumentList.Add("1");
-    psi.ArgumentList.Add("-method");
-    psi.ArgumentList.Add("POST");
-    psi.ArgumentList.Add("-headers");
-    psi.ArgumentList.Add(headers);
-    psi.ArgumentList.Add(c.PublishEndpoint);
+    psi.ArgumentList.Add("pipe:1");
 
     var p = Process.Start(psi) ?? throw new Exception("Could not start FFmpeg.");
     _ = Task.Run(async () =>
@@ -154,6 +153,46 @@ static Process StartFfmpeg(Credential c, WaveFormat inputFormat)
         }
     });
     return p;
+}
+
+static async Task UploadAudioAsync(Credential c, Process ffmpeg, CancellationToken token)
+{
+    var pipe = new Pipe();
+    var producer = Task.Run(async () =>
+    {
+        try
+        {
+            await ffmpeg.StandardOutput.BaseStream.CopyToAsync(pipe.Writer.AsStream(), token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        finally
+        {
+            await pipe.Writer.CompleteAsync();
+        }
+    }, token);
+
+    try
+    {
+        using var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        using var request = new HttpRequestMessage(HttpMethod.Post, c.PublishEndpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", c.PublishToken);
+        request.Headers.TransferEncodingChunked = true;
+
+        var content = new StreamContent(pipe.Reader.AsStream());
+        content.Headers.ContentType = new MediaTypeHeaderValue("audio/mpeg");
+        request.Content = content;
+
+        Console.WriteLine("Opening authenticated audio ingest...");
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+        response.EnsureSuccessStatusCode();
+        Console.WriteLine("Audio ingest connected.");
+        await producer;
+    }
+    finally
+    {
+        try { await pipe.Reader.CompleteAsync(); } catch { }
+        try { await producer; } catch { }
+    }
 }
 
 static async Task HeartbeatLoop(Credential c, CancellationToken token)
