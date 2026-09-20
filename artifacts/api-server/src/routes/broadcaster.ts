@@ -208,12 +208,18 @@ router.post("/radio-ingest", async (req, res): Promise<void> => {
     res.status(409).json({ error: "Another broadcaster is already streaming" });
     return;
   }
+  // Keep the upstream HTTP response open for the lifetime of the broadcaster
+  // POST. Do not tie ingest shutdown to response "close": Replit's proxy can
+  // close/recycle the response side while the request body is still streaming.
+  // The request lifecycle is the authoritative source for broadcaster disconnects.
   res.writeHead(200, {
     "Content-Type": "text/plain; charset=utf-8",
-    "Cache-Control": "no-store",
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
     Connection: "keep-alive",
     "Transfer-Encoding": "chunked",
+    "X-Accel-Buffering": "no",
   });
+  res.flushHeaders?.();
   res.write("USALB STREAMING\n");
   recordBroadcasterHeartbeat({ status: "STREAMING", bitrateKbps: null, sampleRate: null, contentType });
   req.on("data", (chunk: Buffer) => {
@@ -223,7 +229,6 @@ router.post("/radio-ingest", async (req, res): Promise<void> => {
   req.on("end", () => endIngest(req));
   req.on("aborted", () => endIngest(req));
   req.on("close", () => endIngest(req));
-  res.on("close", () => endIngest(req));
 });
 
 router.get("/radio-stream", (_req, res): void => {
