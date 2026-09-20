@@ -24,6 +24,7 @@ export function ingestChunk(chunk: Buffer): void {
   if (!activeIngest) return;
   lastAudioAt = new Date();
   totalBytes += chunk.byteLength;
+
   for (const listener of listeners) {
     if (listener.writableEnded || listener.destroyed) {
       listeners.delete(listener);
@@ -44,6 +45,7 @@ export function endIngest(request: IncomingMessage): void {
   activeIngestStartedAt = null;
   lastAudioAt = null;
   activeContentType = "audio/mpeg";
+
   for (const listener of listeners) {
     if (!listener.writableEnded && !listener.destroyed) listener.end();
   }
@@ -51,20 +53,28 @@ export function endIngest(request: IncomingMessage): void {
 }
 
 export function openListener(response: ServerResponse): boolean {
-  if (!activeIngest || !lastAudioAt || Date.now() - lastAudioAt.getTime() > 15_000) return false;
+  // A broadcaster connection is enough to open the listener response.
+  // Do not require the first audio chunk to have arrived already; otherwise
+  // a listener can race the first encoded MP3 packet and receive a 503.
+  if (!activeIngest) return false;
+
   response.writeHead(200, {
     "Content-Type": activeContentType,
-    "Cache-Control": "no-store, no-cache, must-revalidate",
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
     Pragma: "no-cache",
-    Connection: "keep-alive",
-    "Transfer-Encoding": "chunked",
+    "Accept-Ranges": "none",
+    "X-Accel-Buffering": "no",
     "Access-Control-Allow-Origin": "*",
+    Connection: "keep-alive",
   });
   response.flushHeaders?.();
+
   listeners.add(response);
+
   const remove = () => listeners.delete(response);
   response.on("close", remove);
   response.on("error", remove);
+
   return true;
 }
 
