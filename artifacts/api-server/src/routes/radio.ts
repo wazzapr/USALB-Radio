@@ -17,7 +17,6 @@ import {
 } from "@workspace/api-zod";
 import { db, chatMessagesTable, mutedUsersTable, nowPlayingTable, stationSettingsTable } from "@workspace/db";
 import { getBroadcasterSnapshot, getListenerCount, broadcast } from "../lib/radio-state";
-import { getStreamSnapshot } from "../lib/stream-hub";
 import { getLiveSnapshot, handleLiveStreamRequest } from "../lib/live-relay";
 
 const router: IRouter = Router();
@@ -76,7 +75,7 @@ router.get("/stream-status", async (_req, res): Promise<void> => {
   const streamUrl = configuredStreamUrl(station?.streamUrl ?? "");
   const [track] = await db.select().from(nowPlayingTable).limit(1);
   const heartbeat = getBroadcasterSnapshot();
-  const stream = getStreamSnapshot();
+  const stream = getLiveSnapshot();
   const broadcasterConnected = heartbeat.connected || stream.connected;
   const isLive = stream.streaming;
   const state = !streamUrl
@@ -188,7 +187,7 @@ router.get("/admin/diagnostics", async (_req, res): Promise<void> => {
   const [station] = await db.select().from(stationSettingsTable).limit(1);
   const streamUrl = configuredStreamUrl(station?.streamUrl ?? "");
   const heartbeat = getBroadcasterSnapshot();
-  const stream = getStreamSnapshot();
+  const stream = getLiveSnapshot();
   const audioData = stream.streaming;
   const broadcasterConnected = heartbeat.connected || stream.connected;
   const checks = [
