@@ -8,14 +8,31 @@ let activeIngestStartedAt: Date | null = null;
 let lastAudioAt: Date | null = null;
 let totalBytes = 0;
 let activeContentType = "audio/mpeg";
+let activeBroadcasterId: string | null = null;
+let idleTimer: NodeJS.Timeout | null = null;
 const listeners = new Set<Listener>();
 
-export function beginIngest(request: IncomingMessage, contentType = "audio/mpeg"): boolean {
-  if (activeIngest) return false;
+export function beginIngest(
+  request: IncomingMessage,
+  contentType = "audio/mpeg",
+  broadcasterId: string,
+): boolean {
+  if (idleTimer) {
+    clearTimeout(idleTimer);
+    idleTimer = null;
+  }
+
+  if (activeBroadcasterId && activeBroadcasterId !== broadcasterId) return false;
+
+  if (!activeIngest) {
+    activeIngestStartedAt = new Date();
+    lastAudioAt = null;
+    totalBytes = 0;
+    activeContentType = contentType;
+    activeBroadcasterId = broadcasterId;
+  }
+
   activeIngest = request;
-  activeIngestStartedAt = new Date();
-  lastAudioAt = null;
-  totalBytes = 0;
   activeContentType = contentType;
   return true;
 }
@@ -41,22 +58,27 @@ export function ingestChunk(chunk: Buffer): void {
 
 export function endIngest(request: IncomingMessage): void {
   if (activeIngest !== request) return;
-  activeIngest = null;
-  activeIngestStartedAt = null;
-  lastAudioAt = null;
-  activeContentType = "audio/mpeg";
 
-  for (const listener of listeners) {
-    if (!listener.writableEnded && !listener.destroyed) listener.end();
-  }
-  listeners.clear();
+  activeIngest = null;
+
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    if (activeIngest) return;
+    activeBroadcasterId = null;
+    activeIngestStartedAt = null;
+    lastAudioAt = null;
+    activeContentType = "audio/mpeg";
+
+    for (const listener of listeners) {
+      if (!listener.writableEnded && !listener.destroyed) listener.end();
+    }
+    listeners.clear();
+    idleTimer = null;
+  }, 5_000);
 }
 
 export function openListener(response: ServerResponse): boolean {
-  // A broadcaster connection is enough to open the listener response.
-  // Do not require the first audio chunk to have arrived already; otherwise
-  // a listener can race the first encoded MP3 packet and receive a 503.
-  if (!activeIngest) return false;
+  if (!activeBroadcasterId) return false;
 
   response.writeHead(200, {
     "Content-Type": activeContentType,
@@ -80,8 +102,8 @@ export function openListener(response: ServerResponse): boolean {
 
 export function getStreamSnapshot() {
   return {
-    connected: activeIngest !== null,
-    streaming: activeIngest !== null && lastAudioAt !== null && Date.now() - lastAudioAt.getTime() <= 15_000,
+    connected: activeBroadcasterId !== null,
+    streaming: activeBroadcasterId !== null && lastAudioAt !== null && Date.now() - lastAudioAt.getTime() <= 15_000,
     startedAt: activeIngestStartedAt,
     lastAudioAt,
     totalBytes,
