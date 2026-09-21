@@ -31,6 +31,16 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Buffer short audio POST bodies so the ingest route cannot lose request-body
+// events while it performs broadcaster authentication against the database.
+app.use(
+  "/api/radio-ingest",
+  express.raw({
+    type: ["audio/*", "application/octet-stream"],
+    limit: "10mb",
+  }),
+);
+
 app.use("/api", router);
 app.use((_req, res) => {
   res.status(404).json({ error: "API route not found" });
