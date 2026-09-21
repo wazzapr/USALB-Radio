@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
-using System.IO.Pipelines;
 using System.Text;
 using System.Text.Json;
 using NAudio.Wave;
@@ -157,41 +156,115 @@ static Process StartFfmpeg(Credential c, WaveFormat inputFormat)
 
 static async Task UploadAudioAsync(Credential c, Process ffmpeg, CancellationToken token)
 {
-    var pipe = new Pipe();
-    var producer = Task.Run(async () =>
+    using var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+
+    while (!token.IsCancellationRequested)
     {
         try
         {
-            await ffmpeg.StandardOutput.BaseStream.CopyToAsync(pipe.Writer.AsStream(), token);
+            Console.WriteLine("Connecting audio ingest...");
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, c.PublishEndpoint);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", c.PublishToken);
+            request.Headers.TransferEncodingChunked = true;
+
+            var content = new FfmpegStreamContent(ffmpeg.StandardOutput.BaseStream, token);
+            content.Headers.ContentType = new MediaTypeHeaderValue("audio/mpeg");
+            request.Content = content;
+
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+            response.EnsureSuccessStatusCode();
+
+            Console.WriteLine("Audio ingest connected.");
+
+            await content.StreamingTask;
+
+            if (!token.IsCancellationRequested)
+                throw new IOException("Audio ingest connection ended.");
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        finally
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
-            await pipe.Writer.CompleteAsync();
+            break;
         }
-    }, token);
+        catch (Exception ex)
+        {
+            if (token.IsCancellationRequested) break;
 
-    try
-    {
-        using var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
-        using var request = new HttpRequestMessage(HttpMethod.Post, c.PublishEndpoint);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", c.PublishToken);
-        request.Headers.TransferEncodingChunked = true;
+            Console.WriteLine($"Audio ingest disconnected: {ex.Message}");
+            Console.WriteLine("Reconnecting audio ingest in 3 seconds...");
 
-        var content = new StreamContent(pipe.Reader.AsStream());
-        content.Headers.ContentType = new MediaTypeHeaderValue("audio/mpeg");
-        request.Content = content;
-
-        Console.WriteLine("Opening authenticated audio ingest...");
-        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
-        response.EnsureSuccessStatusCode();
-        Console.WriteLine("Audio ingest connected.");
-        await producer;
+            try { await Task.Delay(TimeSpan.FromSeconds(3), token); }
+            catch (OperationCanceledException) { break; }
+        }
     }
-    finally
+
+    Console.WriteLine("Audio ingest stopped.");
+}
+
+sealed class FfmpegStreamContent : HttpContent
+{
+    private readonly Stream _source;
+    private readonly CancellationToken _token;
+    private readonly TaskCompletionSource<bool> _streaming =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private long _bytesSent;
+    private DateTime _lastReport = DateTime.UtcNow;
+
+    public Task StreamingTask => _streaming.Task;
+
+    public FfmpegStreamContent(Stream source, CancellationToken token)
     {
-        try { await pipe.Reader.CompleteAsync(); } catch { }
-        try { await producer; } catch { }
+        _source = source;
+        _token = token;
+    }
+
+    protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+    {
+        var buffer = new byte[32 * 1024];
+
+        try
+        {
+            while (!_token.IsCancellationRequested)
+            {
+                var read = await _source.ReadAsync(buffer.AsMemory(0, buffer.Length), _token);
+                if (read == 0) break;
+
+                await stream.WriteAsync(buffer.AsMemory(0, read), _token);
+                await stream.FlushAsync(_token);
+
+                _bytesSent += read;
+                if ((DateTime.UtcNow - _lastReport).TotalSeconds >= 5)
+                {
+                    Console.WriteLine($"Audio bytes sent: {_bytesSent:N0}");
+                    _lastReport = DateTime.UtcNow;
+                }
+            }
+
+            if (_token.IsCancellationRequested)
+                _streaming.TrySetCanceled(_token);
+            else
+                _streaming.TrySetResult(true);
+        }
+        catch (OperationCanceledException) when (_token.IsCancellationRequested)
+        {
+            _streaming.TrySetCanceled(_token);
+        }
+        catch (Exception ex)
+        {
+            _streaming.TrySetException(ex);
+            throw;
+        }
+    }
+
+    protected override bool TryComputeLength(out long length)
+    {
+        length = 0;
+        return false;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
     }
 }
 
