@@ -70,6 +70,10 @@ router.get("/listeners", (_req, res): void => {
   res.json(GetListenersResponse.parse({ count: getListenerCount() }));
 });
 
+router.get("/live/status", (_req, res): void => {
+  res.json({ live: getLiveSnapshot().streaming });
+});
+
 router.get("/stream-status", async (_req, res): Promise<void> => {
   const [station] = await db.select().from(stationSettingsTable).limit(1);
   const streamUrl = configuredStreamUrl(station?.streamUrl ?? "");
