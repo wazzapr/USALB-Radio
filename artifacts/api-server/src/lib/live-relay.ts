@@ -10,6 +10,9 @@ let broadcaster: WebSocket | null = null;
 let live = false;
 let recentMp3Chunks: Buffer[] = [];
 let recentMp3Bytes = 0;
+let startedAt: Date | null = null;
+let lastAudioAt: Date | null = null;
+let totalBytes = 0;
 const MAX_RECENT_MP3_BYTES = 96 * 1024;
 
 function sendJson(socket: WebSocket, payload: Record<string, unknown>) {
@@ -32,6 +35,9 @@ async function validToken(token: string | null): Promise<boolean> {
 function reset() {
   broadcaster = null;
   live = false;
+  startedAt = null;
+  lastAudioAt = null;
+  totalBytes = 0;
   recentMp3Chunks = [];
   recentMp3Bytes = 0;
   for (const response of listeners) {
@@ -48,6 +54,8 @@ function remember(chunk: Buffer) {
   }
 }
 function relay(chunk: Buffer) {
+  lastAudioAt = new Date();
+  totalBytes += chunk.length;
   remember(chunk);
   for (const response of listeners) {
     if (response.writableEnded || response.destroyed) { listeners.delete(response); continue; }
@@ -73,6 +81,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null) {
       const message = JSON.parse(data.toString()) as { type?: string; codec?: string; mimeType?: string };
       if (message.type === "start") {
         live = message.codec === "mp3" || message.mimeType === "audio/mpeg";
+        if (live) { startedAt = new Date(); lastAudioAt = null; totalBytes = 0; }
         sendJson(socket, { type: "ready", live, codec: live ? "mp3" : null });
       } else if (message.type === "stop") {
         if (broadcaster === socket) reset();
@@ -85,7 +94,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null) {
   socket.once("error", () => { if (broadcaster === socket) reset(); });
 }
 export function getLiveSnapshot() {
-  return { streaming: live, connected: broadcaster !== null, listenerCount: listeners.size, contentType: live ? "audio/mpeg" : null };
+  return { streaming: live && lastAudioAt !== null, connected: broadcaster !== null, listenerCount: listeners.size, contentType: live ? "audio/mpeg" : null, startedAt, lastAudioAt, totalBytes };
 }
 export function handleLiveStreamRequest(req: IncomingMessage, res: ServerResponse): boolean {
   const url = new URL(req.url ?? "", `http://${req.headers.host ?? "localhost"}`);
