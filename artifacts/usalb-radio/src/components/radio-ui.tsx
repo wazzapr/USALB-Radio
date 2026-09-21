@@ -67,6 +67,9 @@ export function TrackArtwork({ track, size = 'large' }: { track?: NowPlaying | n
 
 export function LivePlayer({ station, status }: { station?: Station; status?: StreamStatus }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wantedToPlayRef = useRef(false);
+  const currentStreamUrlRef = useRef<string | undefined>(undefined);
   const [playing, setPlaying] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [volume, setVolume] = useState(0.78);
@@ -75,66 +78,175 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
   const state = status?.state ?? 'OFFLINE';
   const unavailable = !streamUrl || state === 'OFFLINE';
 
-  useEffect(() => {
-    if (!audioRef.current) audioRef.current = new Audio();
-    audioRef.current.volume = volume;
-    return () => { audioRef.current?.pause(); audioRef.current = null; };
-  }, []);
-  useEffect(() => { if (audioRef.current) audioRef.current.volume = volume; }, [volume]);
+  const clearReconnectTimer = () => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  };
 
-  const toggle = async () => {
-    if (playing) { audioRef.current?.pause(); setPlaying(false); return; }
-    if (!streamUrl || unavailable) return;
+  const buildFreshUrl = (url: string) => {
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}live=${Date.now()}`;
+  };
 
+  const connect = async (url: string) => {
+    if (!url || !wantedToPlayRef.current) return;
+
+    clearReconnectTimer();
     setAudioError(false);
     setConnecting(true);
 
     const audio = audioRef.current || new Audio();
     audioRef.current = audio;
-
-    // Always create a fresh stream request. This prevents a previous 503/error
-    // response from being reused by the browser when the broadcaster is live.
-    const separator = streamUrl.includes('?') ? '&' : '?';
-    audio.src = `${streamUrl}${separator}live=${Date.now()}`;
+    currentStreamUrlRef.current = url;
+    audio.src = buildFreshUrl(url);
     audio.preload = 'none';
     audio.volume = volume;
-    audio.onplaying = () => { setConnecting(false); setPlaying(true); };
-    audio.onpause = () => setPlaying(false);
-    audio.onerror = () => { setConnecting(false); setPlaying(false); setAudioError(true); };
+
+    audio.onplaying = () => {
+      setConnecting(false);
+      setPlaying(true);
+      setAudioError(false);
+    };
+
+    audio.onpause = () => {
+      if (wantedToPlayRef.current) {
+        setPlaying(false);
+        setConnecting(true);
+      } else {
+        setPlaying(false);
+      }
+    };
+
+    audio.onended = () => {
+      if (wantedToPlayRef.current) {
+        setPlaying(false);
+        setConnecting(true);
+        reconnectTimerRef.current = setTimeout(() => void connect(url), 1500);
+      }
+    };
+
+    audio.onerror = () => {
+      if (!wantedToPlayRef.current) return;
+      setPlaying(false);
+      setConnecting(true);
+      setAudioError(true);
+      reconnectTimerRef.current = setTimeout(() => void connect(url), 3000);
+    };
 
     try {
       audio.load();
       await audio.play();
     } catch {
-      setConnecting(false);
+      if (!wantedToPlayRef.current) return;
+      setConnecting(true);
       setAudioError(true);
+      reconnectTimerRef.current = setTimeout(() => void connect(url), 3000);
     }
   };
 
-  const retry = () => { setAudioError(false); void toggle(); };
-  const label = audioError || state === 'ERROR' ? 'Retry live stream' : connecting ? 'Connecting to live stream' : playing ? 'Pause live stream' : unavailable ? 'Live stream unavailable' : 'Listen live';
+  useEffect(() => {
+    if (!audioRef.current) audioRef.current = new Audio();
+    audioRef.current.volume = volume;
+
+    return () => {
+      wantedToPlayRef.current = false;
+      clearReconnectTimer();
+      audioRef.current?.pause();
+      audioRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = volume;
+  }, [volume]);
+
+  // If the server publishes a new stream URL while this page is open,
+  // transparently move the existing listener to the new endpoint.
+  useEffect(() => {
+    if (!wantedToPlayRef.current || !streamUrl) return;
+    if (currentStreamUrlRef.current && currentStreamUrlRef.current !== streamUrl) {
+      void connect(streamUrl);
+    }
+  }, [streamUrl]);
+
+  // Keep trying while the listener wants playback, including after a server
+  // restart/redeploy. Backoff is intentionally short so a republish recovers.
+  useEffect(() => {
+    if (!wantedToPlayRef.current || !streamUrl || unavailable) return;
+    if (!playing && !connecting && !reconnectTimerRef.current) {
+      reconnectTimerRef.current = setTimeout(() => void connect(streamUrl), 3000);
+    }
+  }, [status?.isLive, state, streamUrl, unavailable, playing, connecting]);
+
+  const toggle = async () => {
+    if (wantedToPlayRef.current) {
+      wantedToPlayRef.current = false;
+      clearReconnectTimer();
+      audioRef.current?.pause();
+      setConnecting(false);
+      setPlaying(false);
+      setAudioError(false);
+      return;
+    }
+
+    if (!streamUrl) return;
+    wantedToPlayRef.current = true;
+    await connect(streamUrl);
+  };
+
+  const retry = () => {
+    wantedToPlayRef.current = true;
+    void connect(streamUrl || currentStreamUrlRef.current || '');
+  };
+
+  const label = audioError && connecting
+    ? 'Reconnecting to live stream'
+    : connecting
+      ? 'Finding the signal'
+      : playing
+        ? 'Pause live stream'
+        : unavailable
+          ? 'Live stream unavailable'
+          : 'Listen live';
 
   return (
     <div className="flex flex-col gap-3" data-testid="live-player">
       <div className="flex items-center gap-3">
-        <button onClick={audioError ? retry : toggle} disabled={unavailable && !audioError} aria-label={label} className={`grid size-16 shrink-0 place-items-center rounded-full border-4 border-background text-background shadow-[0_0_0_1px_hsl(var(--primary)/.3)] transition-transform active:scale-95 ${unavailable && !audioError ? 'cursor-not-allowed bg-muted-foreground/40' : 'bg-secondary hover:scale-105'}`} data-testid="button-live-player">
-          {audioError || state === 'ERROR' ? <RotateCcw size={24} /> : connecting ? <Wifi size={24} className="animate-pulse" /> : playing ? <Pause size={25} fill="currentColor" /> : <Play size={26} fill="currentColor" className="ml-1" />}
+        <button
+          onClick={audioError ? retry : toggle}
+          disabled={!streamUrl && !audioError}
+          aria-label={label}
+          className={`grid size-16 shrink-0 place-items-center rounded-full border-4 border-background text-background shadow-[0_0_0_1px_hsl(var(--primary)/.3)] transition-transform active:scale-95 ${(!streamUrl && !audioError) ? 'cursor-not-allowed bg-muted-foreground/40' : 'bg-secondary hover:scale-105'}`}
+          data-testid="button-live-player"
+        >
+          {audioError || connecting
+            ? <Wifi size={24} className="animate-pulse" />
+            : playing
+              ? <Pause size={25} fill="currentColor" />
+              : <Play size={26} fill="currentColor" className="ml-1" />}
         </button>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2"><span className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">{connecting ? 'Finding the signal' : playing ? 'You are listening' : audioError ? 'Playback could not start' : 'Ready when you are'}</span>{playing && <div className="equalizer flex h-6 items-end gap-1 text-secondary" aria-hidden="true"><span /><span /><span /><span /></div>}</div>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">
+              {connecting ? 'Finding the signal' : playing ? 'You are listening' : audioError ? 'Signal interrupted' : 'Ready when you are'}
+            </span>
+            {playing && <div className="equalizer flex h-6 items-end gap-1 text-secondary" aria-hidden="true"><span /><span /><span /><span /></div>}
+          </div>
           <p className="mt-1 truncate text-lg font-semibold">{label}</p>
         </div>
         <label className="hidden items-center gap-2 sm:flex">
-          <span className="sr-only">Volume</span>{volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} className="text-muted-foreground" />}
+          <span className="sr-only">Volume</span>
+          {volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} className="text-muted-foreground" />}
           <input type="range" min="0" max="1" step=".01" value={volume} onChange={(e) => setVolume(Number(e.target.value))} className="w-20 accent-primary" aria-label="Volume" data-testid="input-volume" />
         </label>
       </div>
-      {audioError && <p className="rounded-xl bg-destructive/10 px-3 py-2 text-xs text-destructive" data-testid="text-player-error">The audio connection failed. Check your connection and try once more.</p>}
-      {!status?.isLive && <p className="text-xs text-muted-foreground">The station will appear here when the broadcaster connects. We never fake a live signal.</p>}
+      {audioError && <p className="rounded-xl bg-destructive/10 px-3 py-2 text-xs text-destructive" data-testid="text-player-error">The player lost the signal and is automatically trying to reconnect.</p>}
+      {!status?.isLive && !playing && !connecting && <p className="text-xs text-muted-foreground">The station will appear here when the broadcaster connects. The player will reconnect automatically if the signal returns.</p>}
     </div>
   );
 }
-
 export function StationHeader({ station, admin = false }: { station?: Station; admin?: boolean }) {
   return (
     <header className="flex items-center justify-between gap-4">
