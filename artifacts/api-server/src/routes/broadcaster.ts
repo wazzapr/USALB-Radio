@@ -208,10 +208,22 @@ router.post("/radio-ingest", async (req, res): Promise<void> => {
     res.status(409).json({ error: "Another broadcaster is already streaming" });
     return;
   }
-  // Each audio upload is a short, normal HTTP POST. This avoids relying on
-  // long-lived chunked request-body streaming through the Replit proxy.
-  // stream-hub keeps the broadcaster session alive across consecutive POSTs.
+  // Each audio upload is a short, normal HTTP POST. app.ts buffers audio/*
+  // bodies before this handler, so the full MP3 chunk is available here even
+  // after the asynchronous broadcaster-token lookup above.
   recordBroadcasterHeartbeat({ status: "STREAMING", bitrateKbps: null, sampleRate: null, contentType });
+
+  if (Buffer.isBuffer(req.body)) {
+    if (req.body.length > 0) {
+      ingestChunk(req.body);
+      recordBroadcasterHeartbeat({ status: "STREAMING", bitrateKbps: null, sampleRate: null, contentType });
+    }
+    endIngest(req);
+    res.status(204).end();
+    return;
+  }
+
+  // Fallback for environments that do not apply the raw-body middleware.
   req.on("data", (chunk: Buffer) => {
     ingestChunk(chunk);
     recordBroadcasterHeartbeat({ status: "STREAMING", bitrateKbps: null, sampleRate: null, contentType });
