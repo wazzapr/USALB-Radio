@@ -18,6 +18,7 @@ import {
 import { db, chatMessagesTable, mutedUsersTable, nowPlayingTable, stationSettingsTable } from "@workspace/db";
 import { getBroadcasterSnapshot, getListenerCount, broadcast } from "../lib/radio-state";
 import { getStreamSnapshot } from "../lib/stream-hub";
+import { getLiveSnapshot, handleLiveStreamRequest } from "../lib/live-relay";
 
 const router: IRouter = Router();
 const chatRate = new Map<string, number>();
