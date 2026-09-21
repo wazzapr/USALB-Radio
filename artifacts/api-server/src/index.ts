@@ -5,6 +5,7 @@ import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
 import { addListener } from "./lib/radio-state";
 import { createServer } from "node:http";
+import { attachLiveRelay } from "./lib/live-relay";
 
 const rawPort = process.env["PORT"];
 
@@ -48,6 +49,7 @@ server.on("upgrade", (request, socket, head) => {
 });
 
 await ensureSeedData();
+attachLiveRelay(server);
 
 server.listen(port, () => {
   logger.info({ port }, "Server listening");
