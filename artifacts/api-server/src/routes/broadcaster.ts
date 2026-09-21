@@ -34,7 +34,7 @@ function connectionDetails(req: Request) {
     serverAddress: base,
     port,
     protocol: parsed.protocol === "https:" ? "HTTPS" : "HTTP",
-    connectionType: "Chunked HTTP POST source ingest",
+    connectionType: "Short HTTP POST audio ingest",
     codec: "MP3",
     bitrateKbps: 128,
     sampleRate: 44100,
