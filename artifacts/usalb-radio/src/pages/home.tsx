@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
-import { useGetRadioConfig, useGetRadioStatus } from "@workspace/api-client-react";
+import { getGetStationQueryKey, getGetStreamStatusQueryKey, useGetStation, useGetStreamStatus } from "@workspace/api-client-react";
 import { Copy, Download, ExternalLink, Globe2, Headphones, Info, Link2, LoaderCircle, MessageCircle, MoreHorizontal, Pause, Play, Share2, Volume2, VolumeX, Wifi, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -21,11 +21,21 @@ export default function Home() {
   const [broadcastLive, setBroadcastLive] = useState<boolean | null>(null);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
-  const configQuery = useGetRadioConfig();
-  const statusQuery = useGetRadioStatus();
-  const config = configQuery.data ?? fallback;
-  const isLive = broadcastLive ?? statusQuery.data?.isLive ?? config.isLive;
-  const updated = statusQuery.data?.updatedAt || configQuery.data?.updatedAt;
+  const stationQuery = useGetStation({ query: { queryKey: getGetStationQueryKey(), refetchInterval: 10000 } });
+  const statusQuery = useGetStreamStatus({ query: { queryKey: getGetStreamStatusQueryKey(), refetchInterval: 5000 } });
+  const station = stationQuery.data;
+  const status = statusQuery.data;
+  const config = {
+    stationName: station?.name || fallback.stationName,
+    tagline: station?.slogan || fallback.tagline,
+    genre: station?.genre || fallback.genre,
+    hostName: "USALB Studio",
+    showName: "Live from the studio",
+    sourceType: "browser",
+    isLive: status?.isLive ?? false,
+  };
+  const isLive = broadcastLive ?? status?.isLive ?? config.isLive;
+  const updated = status?.lastHeartbeat;
   const shouldReconnectRef = useRef(false);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
@@ -104,7 +114,7 @@ export default function Home() {
     setLoading(true);
     setError("");
     audio.volume = muted ? 0 : volume;
-    audio.src = `${config.sourceType === "browser" ? "/api/live/stream" : "/api/live.mp3"}?client=web&ts=${Date.now()}`;
+    audio.src = `/api/radio-stream?client=web&ts=${Date.now()}`;
     audio.load();
     void audio.play().then(() => {
       setLoading(false);
