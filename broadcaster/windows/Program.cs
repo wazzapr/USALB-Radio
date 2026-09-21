@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Net.Http;
 using NAudio.Wave;
 
 const string DefaultServer = "https://usalb-radio--applauncher.replit.app";
@@ -24,7 +25,9 @@ if (File.Exists(credentialsPath))
 {
     try
     {
-        credentials = JsonSerializer.Deserialize<Credential>(File.ReadAllText(credentialsPath, Encoding.UTF8), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        credentials = JsonSerializer.Deserialize<Credential>(
+            File.ReadAllText(credentialsPath, Encoding.UTF8),
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         Console.WriteLine($"Using saved broadcaster credentials for {credentials?.DeviceId}.");
     }
     catch { credentials = null; }
@@ -40,20 +43,32 @@ if (credentials is null)
         pairingCode = Console.ReadLine() ?? "";
     }
 
-    var pairJson = JsonSerializer.Serialize(new { code = pairingCode, deviceName = "USALB Windows Broadcaster" });
+    var pairJson = JsonSerializer.Serialize(new
+    {
+        code = pairingCode,
+        deviceName = "USALB Windows Broadcaster"
+    });
+
     using var pairResponse = await http.PostAsync(
         serverUrl + "/api/broadcaster/pair",
         new StringContent(pairJson, Encoding.UTF8, "application/json"));
 
     pairResponse.EnsureSuccessStatusCode();
+
     var body = await pairResponse.Content.ReadAsStringAsync();
-    credentials = JsonSerializer.Deserialize<Credential>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+    credentials = JsonSerializer.Deserialize<Credential>(
+        body,
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
         ?? throw new Exception("The server returned invalid broadcaster credentials.");
 
-    if (string.IsNullOrWhiteSpace(credentials.PublishEndpoint) || string.IsNullOrWhiteSpace(credentials.PublishToken))
+    if (string.IsNullOrWhiteSpace(credentials.PublishEndpoint) ||
+        string.IsNullOrWhiteSpace(credentials.PublishToken))
         throw new Exception("The server returned incomplete broadcaster credentials.");
 
-    File.WriteAllText(credentialsPath, JsonSerializer.Serialize(credentials, new JsonSerializerOptions { WriteIndented = true }));
+    File.WriteAllText(
+        credentialsPath,
+        JsonSerializer.Serialize(credentials, new JsonSerializerOptions { WriteIndented = true }));
+
     Console.WriteLine("Paired successfully.");
 }
 
@@ -67,6 +82,7 @@ var heartbeatTask = HeartbeatLoop(credentials!, heartbeatCts.Token);
 
 using var loopback = new WasapiLoopbackCapture();
 Console.WriteLine($"System-audio format: {loopback.WaveFormat.SampleRate} Hz, {loopback.WaveFormat.Channels} channels, {loopback.WaveFormat.Encoding}");
+
 var ffmpeg = StartFfmpeg(credentials!, loopback.WaveFormat);
 using var stdin = ffmpeg.StandardInput.BaseStream;
 using var uploadCts = new CancellationTokenSource();
@@ -103,7 +119,10 @@ finally
     try { if (!ffmpeg.HasExited) ffmpeg.Kill(true); } catch { }
     heartbeatCts.Cancel();
     try { await heartbeatTask; } catch { }
-    try { await uploadTask; } catch (Exception ex) { Console.WriteLine($"Audio upload stopped: {ex.Message}"); }
+    try { await uploadTask; } catch (Exception ex)
+    {
+        Console.WriteLine($"Audio upload stopped: {ex.Message}");
+    }
 }
 
 static Process StartFfmpeg(Credential c, WaveFormat inputFormat)
@@ -143,14 +162,17 @@ static Process StartFfmpeg(Credential c, WaveFormat inputFormat)
     psi.ArgumentList.Add("pipe:1");
 
     var p = Process.Start(psi) ?? throw new Exception("Could not start FFmpeg.");
+
     _ = Task.Run(async () =>
     {
         while (!p.StandardError.EndOfStream)
         {
             var line = await p.StandardError.ReadLineAsync();
-            if (!string.IsNullOrWhiteSpace(line)) Console.WriteLine(line);
+            if (!string.IsNullOrWhiteSpace(line))
+                Console.WriteLine(line);
         }
     });
+
     return p;
 }
 
@@ -165,16 +187,20 @@ static async Task UploadAudioAsync(Credential c, Process ffmpeg, CancellationTok
             Console.WriteLine("Connecting audio ingest...");
 
             using var request = new HttpRequestMessage(HttpMethod.Post, c.PublishEndpoint);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", c.PublishToken);
+            request.Headers.Authorization =
+                new AuthenticationHeaderValue("Bearer", c.PublishToken);
             request.Headers.TransferEncodingChunked = true;
 
             var content = new FfmpegStreamContent(ffmpeg.StandardOutput.BaseStream, token);
             content.Headers.ContentType = new MediaTypeHeaderValue("audio/mpeg");
             request.Content = content;
 
-            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
-            response.EnsureSuccessStatusCode();
+            using var response = await client.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                token);
 
+            response.EnsureSuccessStatusCode();
             Console.WriteLine("Audio ingest connected.");
 
             await content.StreamingTask;
@@ -193,12 +219,61 @@ static async Task UploadAudioAsync(Credential c, Process ffmpeg, CancellationTok
             Console.WriteLine($"Audio ingest disconnected: {ex.Message}");
             Console.WriteLine("Reconnecting audio ingest in 3 seconds...");
 
-            try { await Task.Delay(TimeSpan.FromSeconds(3), token); }
-            catch (OperationCanceledException) { break; }
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(3), token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
         }
     }
 
     Console.WriteLine("Audio ingest stopped.");
+}
+
+static async Task HeartbeatLoop(Credential c, CancellationToken token)
+{
+    using var client = new HttpClient();
+
+    while (!token.IsCancellationRequested)
+    {
+        try
+        {
+            var payload = JsonSerializer.Serialize(new
+            {
+                status = "STREAMING",
+                contentType = "audio/mpeg",
+                sampleRate = 44100,
+                bitrateKbps = 128
+            });
+
+            using var req = new HttpRequestMessage(
+                HttpMethod.Post,
+                c.HeartbeatEndpoint);
+
+            req.Headers.Authorization =
+                new AuthenticationHeaderValue("Bearer", c.PublishToken);
+
+            req.Content = new StringContent(
+                payload,
+                Encoding.UTF8,
+                "application/json");
+
+            await client.SendAsync(req, token);
+        }
+        catch { }
+
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(10), token);
+        }
+        catch
+        {
+            break;
+        }
+    }
 }
 
 sealed class FfmpegStreamContent : HttpContent
@@ -207,6 +282,7 @@ sealed class FfmpegStreamContent : HttpContent
     private readonly CancellationToken _token;
     private readonly TaskCompletionSource<bool> _streaming =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     private long _bytesSent;
     private DateTime _lastReport = DateTime.UtcNow;
 
@@ -218,7 +294,9 @@ sealed class FfmpegStreamContent : HttpContent
         _token = token;
     }
 
-    protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+    protected override async Task SerializeToStreamAsync(
+        Stream stream,
+        TransportContext? context)
     {
         var buffer = new byte[32 * 1024];
 
@@ -226,13 +304,20 @@ sealed class FfmpegStreamContent : HttpContent
         {
             while (!_token.IsCancellationRequested)
             {
-                var read = await _source.ReadAsync(buffer.AsMemory(0, buffer.Length), _token);
+                var read = await _source.ReadAsync(
+                    buffer.AsMemory(0, buffer.Length),
+                    _token);
+
                 if (read == 0) break;
 
-                await stream.WriteAsync(buffer.AsMemory(0, read), _token);
+                await stream.WriteAsync(
+                    buffer.AsMemory(0, read),
+                    _token);
+
                 await stream.FlushAsync(_token);
 
                 _bytesSent += read;
+
                 if ((DateTime.UtcNow - _lastReport).TotalSeconds >= 5)
                 {
                     Console.WriteLine($"Audio bytes sent: {_bytesSent:N0}");
@@ -265,32 +350,6 @@ sealed class FfmpegStreamContent : HttpContent
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-    }
-}
-
-static async Task HeartbeatLoop(Credential c, CancellationToken token)
-{
-    using var client = new HttpClient();
-    while (!token.IsCancellationRequested)
-    {
-        try
-        {
-            var payload = JsonSerializer.Serialize(new
-            {
-                status = "STREAMING",
-                contentType = "audio/mpeg",
-                sampleRate = 44100,
-                bitrateKbps = 128
-            });
-            using var req = new HttpRequestMessage(HttpMethod.Post, c.HeartbeatEndpoint);
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", c.PublishToken);
-            req.Content = new StringContent(payload, Encoding.UTF8, "application/json");
-            await client.SendAsync(req, token);
-        }
-        catch { }
-
-        try { await Task.Delay(TimeSpan.FromSeconds(10), token); }
-        catch { break; }
     }
 }
 
