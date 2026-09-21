@@ -34,12 +34,12 @@ function connectionDetails(req: Request) {
     serverAddress: base,
     port,
     protocol: parsed.protocol === "https:" ? "HTTPS" : "HTTP",
-    connectionType: "Short HTTP POST audio ingest",
+    connectionType: "Authenticated WebSocket MP3 live relay",
     codec: "MP3",
-    bitrateKbps: 128,
-    sampleRate: 44100,
+    bitrateKbps: 192,
+    sampleRate: 48000,
     channels: "Stereo",
-    publishEndpoint: `${base}/api/radio-ingest`,
+    publishEndpoint: `${parsed.protocol === "https:" ? "wss" : "ws"}://${parsed.host}/api/live/ws?role=broadcaster`,
     publicStreamEndpoint: `${base}/api/radio-stream`,
   };
 }
@@ -108,7 +108,7 @@ router.post("/broadcaster/pair", async (req, res): Promise<void> => {
     telemetryEndpoint: `${base}/api/broadcaster/telemetry`,
     intentEndpoint: `${base}/api/broadcaster/intent`,
     commandsEndpoint: `${base}/api/broadcaster/commands`,
-    format: "audio/mpeg; codec=mp3; 44100 Hz; stereo; 128 kbps",
+    format: "audio/mpeg; codec=mp3; 48000 Hz; stereo; 192 kbps",
   }));
 });
 
