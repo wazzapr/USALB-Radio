@@ -179,20 +179,29 @@ static Process StartFfmpeg(Credential c, WaveFormat inputFormat)
 
 static async Task UploadAudioAsync(Credential c, Process ffmpeg, CancellationToken token)
 {
-    using var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+    var buffer = new byte[32 * 1024];
+    long totalBytesSent = 0;
 
     while (!token.IsCancellationRequested)
     {
         try
         {
-            Console.WriteLine("Connecting audio ingest...");
+            var read = await ffmpeg.StandardOutput.BaseStream.ReadAsync(
+                buffer.AsMemory(0, buffer.Length),
+                token);
+
+            if (read == 0)
+                throw new IOException("FFmpeg audio output ended.");
+
+            var chunk = new byte[read];
+            Buffer.BlockCopy(buffer, 0, chunk, 0, read);
 
             using var request = new HttpRequestMessage(HttpMethod.Post, c.PublishEndpoint);
             request.Headers.Authorization =
                 new AuthenticationHeaderValue("Bearer", c.PublishToken);
-            request.Headers.TransferEncodingChunked = true;
 
-            var content = new FfmpegStreamContent(ffmpeg.StandardOutput.BaseStream, token);
+            using var content = new ByteArrayContent(chunk);
             content.Headers.ContentType = new MediaTypeHeaderValue("audio/mpeg");
             request.Content = content;
 
@@ -202,12 +211,11 @@ static async Task UploadAudioAsync(Credential c, Process ffmpeg, CancellationTok
                 token);
 
             response.EnsureSuccessStatusCode();
-            Console.WriteLine("Audio ingest connected.");
 
-            await content.StreamingTask;
+            totalBytesSent += read;
 
-            if (!token.IsCancellationRequested)
-                throw new IOException("Audio ingest connection ended.");
+            if (totalBytesSent < 100_000 || totalBytesSent % (80_000) < read)
+                Console.WriteLine($"Audio bytes sent: {totalBytesSent:N0}");
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
