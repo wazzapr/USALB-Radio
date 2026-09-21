@@ -211,13 +211,15 @@ router.post("/radio-ingest", async (req, res): Promise<void> => {
   // Each audio upload is a short, normal HTTP POST. This avoids relying on
   // long-lived chunked request-body streaming through the Replit proxy.
   // stream-hub keeps the broadcaster session alive across consecutive POSTs.
-  res.status(204).end();
   recordBroadcasterHeartbeat({ status: "STREAMING", bitrateKbps: null, sampleRate: null, contentType });
   req.on("data", (chunk: Buffer) => {
     ingestChunk(chunk);
     recordBroadcasterHeartbeat({ status: "STREAMING", bitrateKbps: null, sampleRate: null, contentType });
   });
-  req.on("end", () => endIngest(req));
+  req.on("end", () => {
+    endIngest(req);
+    res.status(204).end();
+  });
   req.on("aborted", () => endIngest(req));
   req.on("close", () => endIngest(req));
 });
