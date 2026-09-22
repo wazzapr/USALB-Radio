@@ -74,7 +74,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null) {
   broadcaster = socket;
   live = false;
   recentMp3Chunks = [];
-  recentMp3Bytes = [];
+  recentMp3Bytes = 0;
   socket.on("message", (data, isBinary) => {
     if (isBinary) { if (live) relay(rawBuffer(data)); return; }
     try {
