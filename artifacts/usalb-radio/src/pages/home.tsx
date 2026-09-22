@@ -205,8 +205,9 @@ export default function Home() {
   return (
     <main className="min-h-[100dvh] overflow-hidden">
       <header className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-5 sm:px-8 sm:py-6">
-        <Link href="/" className="flex items-center shrink-0" data-testid="link-home">
-           <img src={logoSrc} alt="USALB RADIO" className="h-12 w-auto max-w-[11.5rem] object-contain sm:h-14 sm:max-w-[13rem]" data-testid="img-station-logo" />
+        <Link href="/" className="flex items-center gap-3" data-testid="link-home">
+           <img src={logoSrc} alt="USALB RADIO" className="h-14 w-16 object-contain sm:h-16 sm:w-[4.5rem]" data-testid="img-station-logo" />
+           <span className="font-display text-lg font-bold tracking-tight">USALB <span className="text-primary">RADIO</span></span>
         </Link>
         <nav className="flex items-center gap-3">
            <span className="hidden eyebrow text-muted-foreground sm:inline">Tirana · Prishtina · diaspora</span>
@@ -214,7 +215,7 @@ export default function Home() {
         </nav>
       </header>
 
-      <section className="relative mx-auto grid max-w-7xl gap-12 px-5 pb-20 pt-8 sm:px-8 lg:grid-cols-[1.08fr_.92fr] lg:items-center lg:gap-20 lg:pb-28 lg:pt-16">
+      <section className="relative mx-auto grid max-w-7xl gap-10 px-5 pb-20 pt-10 sm:px-8 lg:grid-cols-[1.08fr_.92fr] lg:items-center lg:gap-20 lg:pb-28 lg:pt-20">
         <div className="pointer-events-none absolute -left-40 top-12 h-96 w-96 rounded-full bg-primary/10 blur-3xl" />
         <div className="relative">
           <div className="eyebrow mb-6 flex items-center gap-3 text-accent"><span className="h-px w-8 bg-accent" /> live radio / 24—7</div>
@@ -280,7 +281,7 @@ export default function Home() {
               <span className="eyebrow text-muted-foreground">On air now</span>
               <span className={cn("flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-widest", isLive ? "border-accent/30 bg-accent/10 text-accent" : "border-border text-muted-foreground")} data-testid="status-live"><i className={cn("h-1.5 w-1.5 rounded-full", isLive ? "bg-accent animate-pulse" : "bg-muted-foreground")} />{isLive ? "Live" : "Standby"}</span>
             </div>
-             <div className="relative z-10 mt-10 flex items-center justify-center">
+             <div className="relative z-10 mt-12 flex items-center justify-center">
               <div className={cn("pointer-events-none absolute h-56 w-56 rounded-full border border-primary/20", playing && "animate-[ping_3s_ease-out_infinite]")} />
               <button
                 type="button"
