@@ -40,7 +40,7 @@ webSocketServer.on("connection", (socket) => {
 server.on("upgrade", (request, socket, head) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
   if (url.pathname !== "/ws" && url.pathname !== "/api/ws") {
-    socket.destroy();
+    // Leave other upgrade paths to their dedicated handlers (for example /api/live/ws).
     return;
   }
   webSocketServer.handleUpgrade(request, socket, head, (client) => {
