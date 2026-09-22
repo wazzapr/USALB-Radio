@@ -4,7 +4,7 @@ import { getGetStationQueryKey, getGetStreamStatusQueryKey, useGetStation, useGe
 import { Copy, Download, ExternalLink, Globe2, Headphones, Info, Link2, LoaderCircle, MessageCircle, MoreHorizontal, Pause, Play, Share2, Volume2, VolumeX, Wifi, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-import logoSrc from "@assets/usalbradio_1775675611808.jpg";
+const logoSrc = "/usalb-logo-transparent.png";
 const fallback = { stationName: "USALB RADIO", tagline: "Zëri që të mban afër.", genre: "Albanian hits · Talk · Culture", hostName: "USALB Studio", showName: "Live from the studio", sourceType: "browser", isLive: false };
 
 function SignalBars({ active }: { active: boolean }) {
