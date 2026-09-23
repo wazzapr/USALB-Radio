@@ -1,10 +1,18 @@
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 const LIVE_SOCKET_PATH = "/api/live/ws";
 const LIVE_STREAM_PATHS = new Set(["/api/live/stream", "/api/radio-stream"]);
 const PCM_MAGIC = Buffer.from([0x50, 0x43, 0x4d, 0x31]);
 const MAX_RECENT_BYTES = 96 * 1024;
+const QUALITY_PATHS = new Map<string, 320 | 192 | 128 | 64>([
+  ["/api/live/stream", 320], ["/api/radio-stream", 320], ["/api/live/stream-320", 320],
+  ["/api/live/stream-192", 192], ["/api/live/stream-128", 128], ["/api/live/stream-64", 64],
+]);
+type Quality = 320 | 192 | 128 | 64;
+type Encoder = { bitrate: Quality; process: ChildProcessWithoutNullStreams; recentChunks: Buffer[]; recentBytes: number };
+const encoders = new Map<Quality, Encoder>();
 
 let broadcaster: WebSocket | null = null;
 let live = false;
@@ -14,9 +22,7 @@ let pcmChannels = 2;
 let startedAt: Date | null = null;
 let lastAudioAt: Date | null = null;
 let totalBytes = 0;
-let recentChunks: Buffer[] = [];
-let recentBytes = 0;
-const listeners = new Set<ServerResponse>();
+const listeners = new Map<ServerResponse, Quality>();
 const wsListeners = new Set<WebSocket>();
 
 function sendJson(socket: WebSocket, payload: Record<string, unknown>): void {
@@ -28,6 +34,55 @@ function rawBuffer(data: RawData): Buffer {
   if (Array.isArray(data)) return Buffer.concat(data);
   if (data instanceof ArrayBuffer) return Buffer.from(data);
   return Buffer.from(data);
+}
+
+function rememberEncoder(encoder: Encoder, chunk: Buffer): void {
+  encoder.recentChunks.push(Buffer.from(chunk));
+  encoder.recentBytes += chunk.length;
+  while (encoder.recentBytes > MAX_RECENT_BYTES && encoder.recentChunks.length > 1) {
+    const removed = encoder.recentChunks.shift();
+    if (removed) encoder.recentBytes -= removed.length;
+  }
+}
+
+function spawnEncoder(bitrate: Quality): Encoder {
+  const child = spawn(process.env.FFMPEG_PATH || "ffmpeg", [
+    "-hide_banner", "-loglevel", "error",
+    "-f", "s16le", "-ar", String(pcmSampleRate), "-ac", String(pcmChannels), "-i", "pipe:0",
+    "-vn", "-codec:a", "libmp3lame", "-b:a", `${bitrate}k`, "-ar", "44100", "-ac", "2",
+    "-f", "mp3", "-flush_packets", "1", "pipe:1",
+  ], { stdio: ["pipe", "pipe", "pipe"] });
+  const encoder: Encoder = { bitrate, process: child, recentChunks: [], recentBytes: 0 };
+  child.stdout.on("data", (chunk: Buffer) => {
+    lastAudioAt = new Date();
+    totalBytes += chunk.length;
+    rememberEncoder(encoder, chunk);
+    for (const [response, quality] of listeners) {
+      if (quality !== bitrate) continue;
+      if (response.writableEnded || response.destroyed) { listeners.delete(response); continue; }
+      try { response.write(chunk); } catch { listeners.delete(response); }
+    }
+  });
+  child.stderr.on("data", (chunk) => { const message = chunk.toString().trim(); if (message) console.error(`[USALB ffmpeg ${bitrate}k] ${message}`); });
+  child.once("error", () => { if (broadcaster) sendJson(broadcaster, { type: "error", message: "Server audio encoder is unavailable." }); reset(); });
+  child.once("exit", (code) => { if (live && broadcaster && code !== 0) { if (broadcaster) sendJson(broadcaster, { type: "error", message: "Server audio encoder stopped." }); reset(); } });
+  return encoder;
+}
+
+function startEncoders(): boolean {
+  stopEncoders();
+  try {
+    for (const bitrate of [320, 192, 128, 64] as Quality[]) encoders.set(bitrate, spawnEncoder(bitrate));
+    return true;
+  } catch { stopEncoders(); return false; }
+}
+
+function stopEncoders(): void {
+  for (const encoder of encoders.values()) {
+    try { encoder.process.stdin.end(); } catch {}
+    try { encoder.process.kill("SIGTERM"); } catch {}
+  }
+  encoders.clear();
 }
 
 function remember(chunk: Buffer): void {
@@ -50,11 +105,19 @@ function relay(chunk: Buffer): void {
     const pcm = pcmPayload(chunk);
     if (!pcm) return;
     payload = pcm;
+    for (const encoder of encoders.values()) {
+      if (!encoder.process.stdin.destroyed) {
+        try { encoder.process.stdin.write(payload); } catch { reset(); return; }
+      }
+    }
+    return;
   }
   lastAudioAt = new Date();
   totalBytes += payload.length;
-  remember(payload);
-  for (const socket of wsListeners) {
+  const encoder = encoders.get(320);
+  if (!encoder) return;
+  rememberEncoder(encoder, payload);
+  for (const response of listeners) {
     if (socket.readyState === WebSocket.OPEN) {
       try { socket.send(payload); } catch { wsListeners.delete(socket); }
     }
@@ -89,9 +152,9 @@ function reset(): void {
   recentBytes = 0;
   for (const socket of wsListeners) { try { socket.close(1000, "Broadcast ended"); } catch {} }
   wsListeners.clear();
-  for (const response of listeners) {
-    try { response.end(); } catch {}
-  }
+  for (const encoder of encoders.values()) { try { encoder.process.stdin.end(); } catch {} try { encoder.process.kill("SIGTERM"); } catch {} }
+  encoders.clear();
+  for (const response of listeners.keys()) { try { response.end(); } catch {} }
   listeners.clear();
 }
 
@@ -184,6 +247,11 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
           if (Number.isFinite(message.pcmChannels) && (message.pcmChannels ?? 0) > 0) {
             pcmChannels = Math.min(2, Math.max(1, Math.round(message.pcmChannels ?? 2)));
           }
+          if (!startEncoders()) {
+            sendJson(socket, { type: "error", message: "Server audio encoder is unavailable." });
+            reset();
+            return;
+          }
         }
 
         live = true;
@@ -197,7 +265,8 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
           type: "ready",
           live: true,
           codec: broadcastMode,
-          contentType: broadcastMode === "pcm" ? "audio/wav" : "audio/mpeg",
+          contentType: "audio/mpeg",
+          qualities: broadcastMode === "pcm" ? [320, 192, 128, 64] : [320],
         });
       } else if (message.type === "stop") {
         if (broadcaster === socket) reset();
@@ -216,7 +285,9 @@ export function getLiveSnapshot() {
     streaming: live && lastAudioAt !== null,
     connected: broadcaster !== null,
     listenerCount: listeners.size,
-    contentType: live ? (broadcastMode === "pcm" ? "audio/wav" : "audio/mpeg") : null,
+    contentType: live ? "audio/mpeg" : null,
+    bitrateKbps: live ? 320 : null,
+    qualities: live && broadcastMode === "pcm" ? [320, 192, 128, 64] : live ? [320] : [],
     startedAt,
     lastAudioAt,
     totalBytes,
@@ -225,7 +296,8 @@ export function getLiveSnapshot() {
 
 export function handleLiveStreamRequest(req: IncomingMessage, res: ServerResponse): boolean {
   const url = new URL(req.url ?? "", `http://${req.headers.host ?? "localhost"}`);
-  if (!LIVE_STREAM_PATHS.has(url.pathname) || req.method !== "GET") return false;
+  const quality = QUALITY_PATHS.get(url.pathname) ?? null;
+  if (quality === null || req.method !== "GET") return false;
 
   if (!live || !broadcastMode) {
     res.statusCode = 503;
@@ -235,9 +307,11 @@ export function handleLiveStreamRequest(req: IncomingMessage, res: ServerRespons
     return true;
   }
 
-  const isPcm = broadcastMode === "pcm";
+  const selectedQuality: Quality = broadcastMode === "pcm" ? quality : 320;
+  const encoder = encoders.get(selectedQuality);
+  if (!encoder) { res.statusCode = 503; res.setHeader("Content-Type", "text/plain; charset=utf-8"); res.end("Requested stream quality is unavailable."); return true; }
   res.writeHead(200, {
-    "Content-Type": isPcm ? "audio/wav" : "audio/mpeg",
+    "Content-Type": "audio/mpeg",
     "Cache-Control": "no-cache, no-store, must-revalidate, proxy-revalidate",
     Pragma: "no-cache",
     Expires: "0",
@@ -247,12 +321,9 @@ export function handleLiveStreamRequest(req: IncomingMessage, res: ServerRespons
   });
   res.flushHeaders?.();
 
-  listeners.add(res);
+  listeners.set(res, selectedQuality);
 
-  if (isPcm) {
-    res.write(wavHeader(pcmSampleRate, pcmChannels));
-  }
-  for (const chunk of recentChunks) {
+  for (const chunk of encoder.recentChunks) {
     if (!res.writableEnded) res.write(chunk);
   }
 
