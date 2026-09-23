@@ -202,7 +202,7 @@ export default function Home() {
       if (target !== current) {
         const now = Date.now();
         if (!stableQualitySinceRef.current) stableQualitySinceRef.current = now;
-        const holdMs = target < current ? 2500 : 12000;
+        const holdMs = Number(target) < Number(current) ? 2500 : 12000;
         if (now - stableQualitySinceRef.current >= holdMs) {
           stableQualitySinceRef.current = 0;
           shouldReconnectRef.current = true;
