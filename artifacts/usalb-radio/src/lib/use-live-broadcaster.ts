@@ -474,7 +474,7 @@ export function useLiveBroadcaster() {
       const voiceGain = context.createGain();
       const musicAnalyser = context.createAnalyser();
       const voiceAnalyser = context.createAnalyser();
-      const mp3Processor = typeof context.createScriptProcessor === "function" ? context.createScriptProcessor(4608, 2, 2) : null;
+      const mp3Processor = typeof context.createScriptProcessor === "function" ? context.createScriptProcessor(4096, 2, 2) : null;
       const mp3Encoder = new lamejs.Mp3Encoder(2, 44100, 320);
       const mp3Silence = mp3Processor ? context.createGain() : null;
       musicAnalyser.fftSize = 256;
