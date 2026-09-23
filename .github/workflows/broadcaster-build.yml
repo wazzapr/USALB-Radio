@@ -1,0 +1,24 @@
+name: Build USALB Broadcaster
+on:
+  push:
+    paths:
+      - "broadcaster/windows/**"
+      - ".github/workflows/broadcaster-build.yml"
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Restore
+        run: dotnet restore broadcaster/windows/USALBBroadcaster.csproj
+      - name: Publish
+        run: dotnet publish broadcaster/windows/USALBBroadcaster.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o broadcaster/windows/publish
+      - name: Upload broadcaster
+        uses: actions/upload-artifact@v4
+        with:
+          name: USALB-Broadcaster-win-x64
+          path: broadcaster/windows/publish/
