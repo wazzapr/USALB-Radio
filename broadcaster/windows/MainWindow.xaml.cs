@@ -10,7 +10,7 @@ public partial class MainWindow : Window
 {
     const int SampleRate=44100, Channels=2, FrameMs=20;
     readonly CancellationTokenSource stop=new();
-    ClientWebSocket? socket; WasapiLoopbackCapture? loopback; WasapiCapture? microphone;
+    ClientWebSocket? socket; WasapiLoopbackCapture? loopback; WaveInEvent? microphone;
     BufferedWaveProvider? musicBuffer; BufferedWaveProvider? micBuffer;
     MediaFoundationResampler? musicResampler; MediaFoundationResampler? micResampler;
     ISampleProvider? musicSamples; ISampleProvider? micSamples;
@@ -34,7 +34,7 @@ public partial class MainWindow : Window
             loopback.DataAvailable+=(_,a)=>musicBuffer.AddSamples(a.Buffer,0,a.BytesRecorded); loopback.StartRecording();
         }
         if(MicBox.IsChecked==true){
-            microphone=new WasapiCapture(); micBuffer=new BufferedWaveProvider(microphone.WaveFormat){DiscardOnBufferOverflow=false,ReadFully=true};
+            microphone=new WaveInEvent(); micBuffer=new BufferedWaveProvider(microphone.WaveFormat){DiscardOnBufferOverflow=false,ReadFully=true};
             micResampler=new MediaFoundationResampler(micBuffer,new WaveFormat(SampleRate,16,Channels)){ResamplerQuality=60}; micSamples=micResampler.ToSampleProvider();
             microphone.DataAvailable+=(_,a)=>micBuffer.AddSamples(a.Buffer,0,a.BytesRecorded); microphone.StartRecording();
         }
