@@ -114,7 +114,7 @@ export default function Home() {
     setLoading(true);
     setError("");
     audio.volume = muted ? 0 : volume;
-    audio.src = `/api/radio-stream?client=web&ts=${Date.now()}`;
+    audio.src = `/api/live/stream?client=web&ts=${Date.now()}`;
     audio.load();
     void audio.play().then(() => {
       setLoading(false);
