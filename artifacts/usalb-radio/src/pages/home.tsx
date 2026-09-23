@@ -124,14 +124,14 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
-      const context = new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
+      const context = new AudioContext({ latencyHint: "balanced", sampleRate: 48000 });
       await context.resume();
       const gain = context.createGain();
       gain.gain.value = muted ? 0 : volume;
       gain.connect(context.destination);
       listenerContextRef.current = context;
       listenerGainRef.current = gain;
-      listenerNextTimeRef.current = context.currentTime + 0.35;
+      listenerNextTimeRef.current = context.currentTime + 0.6;
 
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const socket = new WebSocket(protocol + "//" + window.location.host + "/api/live/ws?role=listener&format=pcm");
