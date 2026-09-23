@@ -386,7 +386,7 @@ export function useLiveBroadcaster() {
     }
     try {
       setError("");
-      const nextStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      const nextStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { suppressLocalAudioPlayback: true } });
       const previousStream = displayStreamRef.current;
       displayStreamRef.current = nextStream;
       updateDisplayDetails(nextStream);
@@ -471,18 +471,18 @@ export function useLiveBroadcaster() {
       const voiceGain = context.createGain();
       const musicAnalyser = context.createAnalyser();
       const voiceAnalyser = context.createAnalyser();
-      const pcmProcessor = typeof context.createScriptProcessor === "function" ? context.createScriptProcessor(4096, 2, 2) : null;
+      const pcmProcessor = typeof context.createScriptProcessor === "function" ? context.createScriptProcessor(8192, 2, 2) : null;
       const pcmSilence = pcmProcessor ? context.createGain() : null;
       musicAnalyser.fftSize = 256;
       voiceAnalyser.fftSize = 256;
       musicGain.gain.value = musicVolumeRef.current;
       voiceGain.gain.value = microphoneEnabledRef.current ? voiceVolumeRef.current : 0;
       masterGain.gain.value = masterVolumeRef.current;
-      limiter.threshold.value = -6;
-      limiter.knee.value = 6;
-      limiter.ratio.value = 20;
-      limiter.attack.value = 0.003;
-      limiter.release.value = 0.12;
+      limiter.threshold.value = -8;
+      limiter.knee.value = 4;
+      limiter.ratio.value = 12;
+      limiter.attack.value = 0.005;
+      limiter.release.value = 0.18;
       musicGain.connect(musicAnalyser);
       voiceGain.connect(voiceAnalyser);
       musicAnalyser.connect(mixBus);
@@ -497,6 +497,8 @@ export function useLiveBroadcaster() {
         pcmProcessor.onaudioprocess = (event) => {
           const socket = socketRef.current;
           if (!socket || socket.readyState !== WebSocket.OPEN) return;
+          // Keep the sender from building an ever-growing WebSocket queue.
+          if (socket.bufferedAmount > 512 * 1024) return;
           const input = event.inputBuffer;
           const channels = 2;
           const packet = new ArrayBuffer(pcmMagic.length + input.length * channels * 2);
