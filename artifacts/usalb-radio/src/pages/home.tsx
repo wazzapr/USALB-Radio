@@ -13,6 +13,10 @@ function SignalBars({ active }: { active: boolean }) {
 
 export default function Home() {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const listenerSocketRef = useRef<WebSocket | null>(null);
+  const listenerContextRef = useRef<AudioContext | null>(null);
+  const listenerGainRef = useRef<GainNode | null>(null);
+  const listenerNextTimeRef = useRef(0);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [volume, setVolume] = useState(.82);
@@ -42,6 +46,7 @@ export default function Home() {
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = muted ? 0 : volume;
+    if (listenerGainRef.current) listenerGainRef.current.gain.value = muted ? 0 : volume;
   }, [muted, volume]);
 
   useEffect(() => {
@@ -101,33 +106,85 @@ export default function Home() {
 
   const stopNativeStream = () => {
     clearReconnectTimer();
+    listenerSocketRef.current?.close();
+    listenerSocketRef.current = null;
+    listenerContextRef.current?.close().catch(() => {});
+    listenerContextRef.current = null;
+    listenerGainRef.current = null;
+    listenerNextTimeRef.current = 0;
     const audio = audioRef.current;
-    if (!audio) return;
-    audio.pause();
-    audio.removeAttribute("src");
-    audio.load();
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+    }
   };
 
-  const startNativeStream = () => {
-    const audio = audioRef.current;
-    if (!audio) return;
+  const startNativeStream = async () => {
     setLoading(true);
     setError("");
-    audio.volume = muted ? 0 : volume;
-    audio.src = `/api/live/stream?client=web&ts=${Date.now()}`;
-    audio.load();
-    void audio.play().then(() => {
-      setLoading(false);
-      setReconnecting(false);
-      reconnectAttemptRef.current = 0;
+    try {
+      const context = new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
+      await context.resume();
+      const gain = context.createGain();
+      gain.gain.value = muted ? 0 : volume;
+      gain.connect(context.destination);
+      listenerContextRef.current = context;
+      listenerGainRef.current = gain;
+      listenerNextTimeRef.current = context.currentTime + 0.08;
+
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const socket = new WebSocket(protocol + "//" + window.location.host + "/api/live/ws?role=listener&format=pcm");
+      socket.binaryType = "arraybuffer";
+      listenerSocketRef.current = socket;
+      socket.onopen = () => {
+        setLoading(false);
+        setReconnecting(false);
+        reconnectAttemptRef.current = 0;
+      };
+      socket.onmessage = (event) => {
+        if (typeof event.data === "string") return;
+        const ctx = listenerContextRef.current;
+        const output = listenerGainRef.current;
+        if (!ctx || !output) return;
+        const bytes = new Uint8Array(event.data);
+        if (bytes.length < 4) return;
+        const offset = bytes[0] === 0x50 && bytes[1] === 0x43 && bytes[2] === 0x4d && bytes[3] === 0x31 ? 4 : 0;
+        const frames = Math.floor((bytes.length - offset) / 4);
+        if (!frames) return;
+        const buffer = ctx.createBuffer(2, frames, 48000);
+        const left = buffer.getChannelData(0);
+        const right = buffer.getChannelData(1);
+        const view = new DataView(event.data);
+        for (let i = 0; i < frames; i += 1) {
+          left[i] = view.getInt16(offset + i * 4, true) / 32768;
+          right[i] = view.getInt16(offset + i * 4 + 2, true) / 32768;
+        }
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(output);
+        const startAt = Math.max(ctx.currentTime + 0.02, listenerNextTimeRef.current);
+        source.start(startAt);
+        listenerNextTimeRef.current = startAt + buffer.duration;
+        setPlaying(true);
+      };
+      socket.onerror = () => {
+        if (shouldReconnectRef.current) scheduleReconnect();
+        else setError("Could not connect to the live source.");
+      };
+      socket.onclose = () => {
+        if (!shouldReconnectRef.current) return;
+        setPlaying(false);
+        scheduleReconnect();
+      };
       setPlaying(true);
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
-    }).catch(() => {
+    } catch {
       setLoading(false);
       setPlaying(false);
       if (shouldReconnectRef.current) scheduleReconnect();
       else setError("Tap the play button again to connect to the live source.");
-    });
+    }
   };
 
   const scheduleReconnect = () => {
