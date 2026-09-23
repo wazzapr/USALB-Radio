@@ -17,6 +17,7 @@ let totalBytes = 0;
 let recentChunks: Buffer[] = [];
 let recentBytes = 0;
 const listeners = new Set<ServerResponse>();
+const wsListeners = new Set<WebSocket>();
 
 function sendJson(socket: WebSocket, payload: Record<string, unknown>): void {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
@@ -53,6 +54,13 @@ function relay(chunk: Buffer): void {
   lastAudioAt = new Date();
   totalBytes += payload.length;
   remember(payload);
+  for (const socket of wsListeners) { try { socket.close(1000, "Broadcast ended"); } catch {} }
+  wsListeners.clear();
+  for (const socket of wsListeners) {
+    if (socket.readyState === WebSocket.OPEN) {
+      try { socket.send(payload); } catch { wsListeners.delete(socket); }
+    }
+  }
   for (const response of listeners) {
     if (response.writableEnded || response.destroyed) {
       listeners.delete(response);
@@ -63,6 +71,12 @@ function relay(chunk: Buffer): void {
     } catch {
       listeners.delete(response);
     }
+  }
+}
+
+function announceWsStatus(): void {
+  for (const socket of wsListeners) {
+    sendJson(socket, { type: "status", live, audioMode: broadcastMode, sampleRate: pcmSampleRate, channels: pcmChannels });
   }
 }
 
@@ -173,6 +187,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
         }
 
         live = true;
+        announceWsStatus();
         startedAt = new Date();
         lastAudioAt = null;
         totalBytes = 0;
@@ -263,9 +278,16 @@ export function attachLiveRelay(server: Server): void {
       const token = url.searchParams.get("key") || request.headers["x-broadcaster-token"]?.toString() || null;
       if (role === "broadcaster") {
         void attachBroadcaster(client, token, request);
+      } else if (role === "listener") {
+        wsListeners.add(client);
+        sendJson(client, { type: "status", live, audioMode: broadcastMode, sampleRate: pcmSampleRate, channels: pcmChannels });
+        client.once("close", () => wsListeners.delete(client));
+        client.once("error", () => wsListeners.delete(client));
+        if (!live) return;
+        if (broadcastMode !== "pcm") return;
       } else {
-        sendJson(client, { type: "status", live });
-        client.close(1000, "Use /api/radio-stream for audio");
+        sendJson(client, { type: "error", message: "Choose broadcaster or listener mode." });
+        client.close(1008, "Invalid live relay role");
       }
     });
   });
