@@ -24,6 +24,8 @@ type AudioGraph = {
   mp3Processor: ScriptProcessorNode | null;
   mp3Encoder: lamejs.Mp3Encoder | null;
   mp3Silence: GainNode | null;
+  mp3LeftPending: Int16Array;
+  mp3RightPending: Int16Array;
   musicElement: HTMLAudioElement | null;
   displayStream: MediaStream | null;
   displaySource: MediaStreamAudioSourceNode | null;
@@ -505,20 +507,25 @@ export function useLiveBroadcaster() {
           // bounded send queue so temporary network jitter cannot create a burst.
           if (socket.bufferedAmount > 128 * 1024) return;
           const input = event.inputBuffer;
-          const left = new Int16Array(input.length);
-          const right = new Int16Array(input.length);
+          const left = new Int16Array(graph.mp3LeftPending.length + input.length);
+          const right = new Int16Array(graph.mp3RightPending.length + input.length);
+          left.set(graph.mp3LeftPending);
+          right.set(graph.mp3RightPending);
+          const pendingOffset = graph.mp3LeftPending.length;
           const leftData = input.getChannelData(0);
           const rightData = input.numberOfChannels > 1 ? input.getChannelData(1) : leftData;
           for (let frame = 0; frame < input.length; frame += 1) {
-            left[frame] = Math.max(-32768, Math.min(32767, Math.round(Math.max(-1, Math.min(1, leftData[frame])) * 32767)));
-            right[frame] = Math.max(-32768, Math.min(32767, Math.round(Math.max(-1, Math.min(1, rightData[frame])) * 32767)));
+            left[pendingOffset + frame] = Math.max(-32768, Math.min(32767, Math.round(Math.max(-1, Math.min(1, leftData[frame])) * 32767)));
+            right[pendingOffset + frame] = Math.max(-32768, Math.min(32767, Math.round(Math.max(-1, Math.min(1, rightData[frame])) * 32767)));
           }
-          for (let offset = 0; offset < input.length; offset += 1152) {
-            const end = Math.min(offset + 1152, input.length);
-            if (end - offset < 1152) break;
-            const mp3 = mp3Encoder.encodeBuffer(left.subarray(offset, end), right.subarray(offset, end));
+          const frameSize = 1152;
+          const completeLength = left.length - (left.length % frameSize);
+          for (let offset = 0; offset < completeLength; offset += frameSize) {
+            const mp3 = mp3Encoder.encodeBuffer(left.subarray(offset, offset + frameSize), right.subarray(offset, offset + frameSize));
             if (mp3.length) socket.send(new Uint8Array(mp3));
           }
+          graph.mp3LeftPending = left.slice(completeLength);
+          graph.mp3RightPending = right.slice(completeLength);
         };
       }
 
@@ -546,6 +553,8 @@ export function useLiveBroadcaster() {
         mp3Processor,
         mp3Encoder,
         mp3Silence,
+        mp3LeftPending: new Int16Array(0),
+        mp3RightPending: new Int16Array(0),
         musicElement: null,
         displayStream: null,
         displaySource: null,
