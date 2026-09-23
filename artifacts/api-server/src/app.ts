@@ -4,7 +4,7 @@ import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
-import { handleLiveStreamRequest } from "./lib/live-relay";
+import { getLiveBroadcastStatus, handleLiveStreamRequest } from "./lib/live-relay";
 
 const app: Express = express();
 
