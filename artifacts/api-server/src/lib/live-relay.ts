@@ -54,8 +54,6 @@ function relay(chunk: Buffer): void {
   lastAudioAt = new Date();
   totalBytes += payload.length;
   remember(payload);
-  for (const socket of wsListeners) { try { socket.close(1000, "Broadcast ended"); } catch {} }
-  wsListeners.clear();
   for (const socket of wsListeners) {
     if (socket.readyState === WebSocket.OPEN) {
       try { socket.send(payload); } catch { wsListeners.delete(socket); }
@@ -89,6 +87,8 @@ function reset(): void {
   totalBytes = 0;
   recentChunks = [];
   recentBytes = 0;
+  for (const socket of wsListeners) { try { socket.close(1000, "Broadcast ended"); } catch {} }
+  wsListeners.clear();
   for (const response of listeners) {
     try { response.end(); } catch {}
   }
