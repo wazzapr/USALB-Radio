@@ -131,7 +131,7 @@ export default function Home() {
       gain.connect(context.destination);
       listenerContextRef.current = context;
       listenerGainRef.current = gain;
-      listenerNextTimeRef.current = context.currentTime + 0.08;
+      listenerNextTimeRef.current = context.currentTime + 0.35;
 
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const socket = new WebSocket(protocol + "//" + window.location.host + "/api/live/ws?role=listener&format=pcm");
