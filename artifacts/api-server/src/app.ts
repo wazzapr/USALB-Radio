@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { handleLiveStreamRequest } from "./lib/live-relay";
 
 const app: Express = express();
 
@@ -30,6 +31,14 @@ app.use(cors());
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Serve the authenticated broadcaster's live MP3 relay before the API
+// router so /api/radio-stream is handled by the same relay that receives
+// /api/live/ws audio.
+app.use((req, res, next) => {
+  if (handleLiveStreamRequest(req, res)) return;
+  next();
+});
 
 // Buffer short audio POST bodies so the ingest route cannot lose request-body
 // events while it performs broadcaster authentication against the database.
