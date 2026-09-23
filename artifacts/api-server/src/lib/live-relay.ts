@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 const LIVE_SOCKET_PATH = "/api/live/ws";
-const MP3_STREAM_PATH = "/api/radio-stream";
+const LIVE_STREAM_PATHS = new Set(["/api/live/stream", "/api/radio-stream"]);
 const PCM_MAGIC = Buffer.from([0x50, 0x43, 0x4d, 0x31]);
 const MAX_RECENT_BYTES = 96 * 1024;
 
@@ -119,7 +119,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
     socket.close(1008, "Invalid broadcaster token");
     return;
   }
-  if (!token && !sameOrigin(request)) {
+  if (!token && request.headers.origin && !sameOrigin(request)) {
     sendJson(socket, { type: "error", message: "Broadcaster must connect from the USALB control room." });
     socket.close(1008, "Broadcaster origin rejected");
     return;
@@ -210,7 +210,7 @@ export function getLiveSnapshot() {
 
 export function handleLiveStreamRequest(req: IncomingMessage, res: ServerResponse): boolean {
   const url = new URL(req.url ?? "", `http://${req.headers.host ?? "localhost"}`);
-  if (url.pathname !== MP3_STREAM_PATH || req.method !== "GET") return false;
+  if (!LIVE_STREAM_PATHS.has(url.pathname) || req.method !== "GET") return false;
 
   if (!live || !broadcastMode) {
     res.statusCode = 503;
