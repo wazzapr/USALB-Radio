@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import * as lamejs from "@breezystack/lamejs";
 
 export type BroadcastSource = "pc" | "music" | "mic";
 export type BroadcastState = "idle" | "preparing" | "connecting" | "live" | "stopping" | "error";
@@ -20,8 +21,9 @@ type AudioGraph = {
   voiceGain: GainNode;
   musicAnalyser: AnalyserNode;
   voiceAnalyser: AnalyserNode;
-  pcmProcessor: ScriptProcessorNode | null;
-  pcmSilence: GainNode | null;
+  mp3Processor: ScriptProcessorNode | null;
+  mp3Encoder: lamejs.Mp3Encoder | null;
+  mp3Silence: GainNode | null;
   musicElement: HTMLAudioElement | null;
   displayStream: MediaStream | null;
   displaySource: MediaStreamAudioSourceNode | null;
@@ -48,8 +50,6 @@ const defaultPads: EffectPad[] = [
   { id: "pad-5", label: "Bed", file: null, duration: null },
   { id: "pad-6", label: "Tag", file: null, duration: null },
 ];
-const pcmMagic = new Uint8Array([0x50, 0x43, 0x4d, 0x31]);
-
 function wsUrl() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/api/live/ws?role=broadcaster`;
@@ -166,7 +166,7 @@ export function useLiveBroadcaster() {
       if (previewGraphRef.current.context.state === "suspended") await previewGraphRef.current.context.resume();
       return previewGraphRef.current;
     }
-    const context = new AudioContext({ latencyHint: "balanced", sampleRate: 48000 });
+    const context = new AudioContext({ latencyHint: "balanced", sampleRate: 44100 });
     await context.resume();
     const musicGain = context.createGain();
     const voiceGain = context.createGain();
@@ -204,9 +204,9 @@ export function useLiveBroadcaster() {
       displayStreamRef.current = null;
       updateDisplayDetails(null);
     }
-    if (graph.pcmProcessor) graph.pcmProcessor.onaudioprocess = null;
-    graph.pcmProcessor?.disconnect();
-    graph.pcmSilence?.disconnect();
+    if (graph.mp3Processor) graph.mp3Processor.onaudioprocess = null;
+    graph.mp3Processor?.disconnect();
+    graph.mp3Silence?.disconnect();
     graph.mixBus.disconnect();
     graph.masterGain.disconnect();
     graph.limiter.disconnect();
@@ -418,7 +418,7 @@ export function useLiveBroadcaster() {
     if (state !== "live" || !navigator.mediaDevices?.getDisplayMedia) return;
     try {
       setError("");
-      const nextStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      const nextStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { suppressLocalAudioPlayback: true } });
       if (!nextStream.getAudioTracks().length) {
         nextStream.getTracks().forEach((track) => track.stop());
         setError("The new share has no audio. Enable audio in the browser dialog, then replace the share again.");
@@ -462,8 +462,11 @@ export function useLiveBroadcaster() {
       if (sourceRef.current === "pc" && !navigator.mediaDevices.getDisplayMedia) {
         throw new Error("This browser cannot capture PC/system audio.");
       }
-      const context = new AudioContext({ latencyHint: "balanced", sampleRate: 48000 });
+      const context = new AudioContext({ latencyHint: "balanced", sampleRate: 44100 });
       await context.resume();
+      if (context.sampleRate !== 44100) {
+        throw new Error(`This browser opened the live audio context at ${context.sampleRate} Hz instead of 44.1 kHz. Reload the Control Room and try again.`);
+      }
       const mixBus = context.createGain();
       const limiter = context.createDynamicsCompressor();
       const masterGain = context.createGain();
@@ -471,8 +474,9 @@ export function useLiveBroadcaster() {
       const voiceGain = context.createGain();
       const musicAnalyser = context.createAnalyser();
       const voiceAnalyser = context.createAnalyser();
-      const pcmProcessor = typeof context.createScriptProcessor === "function" ? context.createScriptProcessor(8192, 2, 2) : null;
-      const pcmSilence = pcmProcessor ? context.createGain() : null;
+      const mp3Processor = typeof context.createScriptProcessor === "function" ? context.createScriptProcessor(4608, 2, 2) : null;
+      const mp3Encoder = new lamejs.Mp3Encoder(2, 44100, 320);
+      const mp3Silence = mp3Processor ? context.createGain() : null;
       musicAnalyser.fftSize = 256;
       voiceAnalyser.fftSize = 256;
       musicGain.gain.value = musicVolumeRef.current;
@@ -489,30 +493,32 @@ export function useLiveBroadcaster() {
       voiceAnalyser.connect(mixBus);
       mixBus.connect(limiter);
       limiter.connect(masterGain);
-      if (pcmProcessor && pcmSilence) {
-        masterGain.connect(pcmProcessor);
-        pcmProcessor.connect(pcmSilence);
-        pcmSilence.gain.value = 0.00001;
-        pcmSilence.connect(context.destination);
-        pcmProcessor.onaudioprocess = (event) => {
+      if (mp3Processor && mp3Silence) {
+        masterGain.connect(mp3Processor);
+        mp3Processor.connect(mp3Silence);
+        mp3Silence.gain.value = 0.00001;
+        mp3Silence.connect(context.destination);
+        mp3Processor.onaudioprocess = (event) => {
           const socket = socketRef.current;
           if (!socket || socket.readyState !== WebSocket.OPEN) return;
-          // Keep the sender from building an ever-growing WebSocket queue.
-          if (socket.bufferedAmount > 512 * 1024) return;
+          // The network stream is already compressed to 320 kbps MP3. Keep a small
+          // bounded send queue so temporary network jitter cannot create a burst.
+          if (socket.bufferedAmount > 128 * 1024) return;
           const input = event.inputBuffer;
-          const channels = 2;
-          const packet = new ArrayBuffer(pcmMagic.length + input.length * channels * 2);
-          const bytes = new Uint8Array(packet);
-          bytes.set(pcmMagic);
-          const view = new DataView(packet);
+          const left = new Int16Array(input.length);
+          const right = new Int16Array(input.length);
+          const leftData = input.getChannelData(0);
+          const rightData = input.numberOfChannels > 1 ? input.getChannelData(1) : leftData;
           for (let frame = 0; frame < input.length; frame += 1) {
-            for (let channel = 0; channel < channels; channel += 1) {
-              const sourceChannel = Math.min(channel, Math.max(0, input.numberOfChannels - 1));
-              const sample = Math.max(-1, Math.min(1, input.getChannelData(sourceChannel)[frame]));
-              view.setInt16(pcmMagic.length + (frame * channels + channel) * 2, sample * 32767, true);
-            }
+            left[frame] = Math.max(-32768, Math.min(32767, Math.round(Math.max(-1, Math.min(1, leftData[frame])) * 32767)));
+            right[frame] = Math.max(-32768, Math.min(32767, Math.round(Math.max(-1, Math.min(1, rightData[frame])) * 32767)));
           }
-          socket.send(packet);
+          for (let offset = 0; offset < input.length; offset += 1152) {
+            const end = Math.min(offset + 1152, input.length);
+            if (end - offset < 1152) break;
+            const mp3 = mp3Encoder.encodeBuffer(left.subarray(offset, end), right.subarray(offset, end));
+            if (mp3.length) socket.send(new Uint8Array(mp3));
+          }
         };
       }
 
@@ -537,8 +543,9 @@ export function useLiveBroadcaster() {
         voiceGain,
         musicAnalyser,
         voiceAnalyser,
-        pcmProcessor,
-        pcmSilence,
+        mp3Processor,
+        mp3Encoder,
+        mp3Silence,
         musicElement: null,
         displayStream: null,
         displaySource: null,
@@ -606,7 +613,7 @@ export function useLiveBroadcaster() {
           reject(new Error("Could not connect to the live relay. Check the station server and try again."));
         };
       });
-      socket.send(JSON.stringify({ type: "start", mimeType: "audio/pcm", pcmSampleRate: context.sampleRate, pcmChannels: 2 }));
+      socket.send(JSON.stringify({ type: "start", mimeType: "audio/mpeg", codec: "mp3" }));
       setState("live");
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "The broadcast could not be started.";
