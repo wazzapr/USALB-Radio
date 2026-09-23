@@ -3,7 +3,6 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 const LIVE_SOCKET_PATH = "/api/live/ws";
-const LIVE_STREAM_PATHS = new Set(["/api/live/stream", "/api/radio-stream"]);
 const PCM_MAGIC = Buffer.from([0x50, 0x43, 0x4d, 0x31]);
 const MAX_RECENT_BYTES = 96 * 1024;
 const QUALITY_PATHS = new Map<string, 320 | 192 | 128 | 64>([
@@ -85,15 +84,6 @@ function stopEncoders(): void {
   encoders.clear();
 }
 
-function remember(chunk: Buffer): void {
-  recentChunks.push(Buffer.from(chunk));
-  recentBytes += chunk.length;
-  while (recentBytes > MAX_RECENT_BYTES && recentChunks.length > 1) {
-    const removed = recentChunks.shift();
-    if (removed) recentBytes -= removed.length;
-  }
-}
-
 function pcmPayload(chunk: Buffer): Buffer | null {
   if (!chunk.subarray(0, PCM_MAGIC.length).equals(PCM_MAGIC)) return null;
   return chunk.subarray(PCM_MAGIC.length);
@@ -112,32 +102,21 @@ function relay(chunk: Buffer): void {
     }
     return;
   }
-  lastAudioAt = new Date();
-  totalBytes += payload.length;
   const encoder = encoders.get(320);
   if (!encoder) return;
+  lastAudioAt = new Date();
+  totalBytes += payload.length;
   rememberEncoder(encoder, payload);
-  for (const response of listeners) {
-    if (socket.readyState === WebSocket.OPEN) {
-      try { socket.send(payload); } catch { wsListeners.delete(socket); }
-    }
-  }
-  for (const response of listeners) {
-    if (response.writableEnded || response.destroyed) {
-      listeners.delete(response);
-      continue;
-    }
-    try {
-      response.write(payload);
-    } catch {
-      listeners.delete(response);
-    }
+  for (const [response, quality] of listeners) {
+    if (quality !== 320) continue;
+    if (response.writableEnded || response.destroyed) { listeners.delete(response); continue; }
+    try { response.write(payload); } catch { listeners.delete(response); }
   }
 }
 
 function announceWsStatus(): void {
   for (const socket of wsListeners) {
-    sendJson(socket, { type: "status", live, audioMode: broadcastMode, sampleRate: pcmSampleRate, channels: pcmChannels });
+    sendJson(socket, { type: "status", live, audioMode: broadcastMode, sampleRate: pcmSampleRate, channels: pcmChannels, qualities: live && broadcastMode === "pcm" ? [320, 192, 128, 64] : live ? [320] : [] });
   }
 }
 
@@ -148,8 +127,6 @@ function reset(): void {
   startedAt = null;
   lastAudioAt = null;
   totalBytes = 0;
-  recentChunks = [];
-  recentBytes = 0;
   for (const socket of wsListeners) { try { socket.close(1000, "Broadcast ended"); } catch {} }
   wsListeners.clear();
   for (const encoder of encoders.values()) { try { encoder.process.stdin.end(); } catch {} try { encoder.process.kill("SIGTERM"); } catch {} }
