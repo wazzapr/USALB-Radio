@@ -27,7 +27,7 @@ public partial class MainWindow : Window
         socket=new ClientWebSocket(); var key=KeyBox.Password.Trim();
         if(!string.IsNullOrWhiteSpace(key))socket.Options.SetRequestHeader("x-broadcaster-token",key);
         StatusText.Text="Connecting to USALB…"; await socket.ConnectAsync(wsUri,CancellationToken.None);
-        await SendJsonAsync("{"type":"start","mimeType":"audio/pcm;rate=44100;channels=2","codec":"pcm","pcmSampleRate":44100,"pcmChannels":2}");
+        await SendJsonAsync("{\"type\":\"start\",\"mimeType\":\"audio/pcm;rate=44100;channels=2\",\"codec\":\"pcm\",\"pcmSampleRate\":44100,\"pcmChannels\":2}");
         if(SystemAudioBox.IsChecked==true){
             loopback=new WasapiLoopbackCapture(); musicBuffer=new BufferedWaveProvider(loopback.WaveFormat){DiscardOnBufferOverflow=false,ReadFully=true};
             musicResampler=new MediaFoundationResampler(musicBuffer,new WaveFormat(SampleRate,16,Channels)){ResamplerQuality=60}; musicSamples=musicResampler.ToSampleProvider();
@@ -56,7 +56,7 @@ public partial class MainWindow : Window
 
     async Task SendJsonAsync(string json){if(socket?.State!=WebSocketState.Open)return;var bytes=Encoding.UTF8.GetBytes(json);await socket.SendAsync(bytes,WebSocketMessageType.Text,true,CancellationToken.None);}
     async Task StopAsync(){
-        running=false;try{if(socket?.State==WebSocketState.Open)await SendJsonAsync("{"type":"stop"}");}catch{}
+        running=false;try{if(socket?.State==WebSocketState.Open)await SendJsonAsync("{\"type\":\"stop\"}");}catch{}
         try{loopback?.StopRecording();}catch{} try{microphone?.StopRecording();}catch{}
         loopback?.Dispose();microphone?.Dispose();musicResampler?.Dispose();micResampler?.Dispose();
         loopback=null;microphone=null;musicResampler=null;micResampler=null;musicBuffer=null;micBuffer=null;musicSamples=null;micSamples=null;
