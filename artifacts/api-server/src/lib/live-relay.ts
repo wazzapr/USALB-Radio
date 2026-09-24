@@ -186,8 +186,6 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
   broadcaster = socket;
   live = false;
   broadcastMode = null;
-  recentChunks = [];
-  recentBytes = 0;
 
   socket.on("message", (data, isBinary) => {
     if (isBinary) {
@@ -236,8 +234,6 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
         startedAt = new Date();
         lastAudioAt = null;
         totalBytes = 0;
-        recentChunks = [];
-        recentBytes = 0;
         sendJson(socket, {
           type: "ready",
           live: true,
