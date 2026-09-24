@@ -229,8 +229,9 @@ public partial class MainWindow : Window
         StatusText.Text = "Ready";
     }
 
-    async void OnClosed(object? sender, EventArgs e)
+    protected override async void OnClosed(EventArgs e)
     {
         await StopAsync();
+        base.OnClosed(e);
     }
 }
