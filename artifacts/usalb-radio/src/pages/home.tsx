@@ -254,15 +254,12 @@ export default function Home() {
         <div className="relative">
           <div className="absolute -inset-3 rounded-[2rem] border border-primary/10" />
            <div className="glass relative overflow-hidden rounded-[1.7rem] border border-border p-5 shadow-2xl sm:p-7">
-             <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center" aria-hidden="true">
-              <img src={logoSrc} alt="" className="h-44 w-44 object-contain opacity-10 mix-blend-screen sm:h-52 sm:w-52" />
-            </div>
             <div className="absolute right-0 top-0 h-52 w-52 rounded-full bg-primary/10 blur-3xl" />
              <div className="relative z-10 flex items-center justify-between">
               <span className="eyebrow text-muted-foreground">On air now</span>
               <span className={cn("flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-widest", isLive ? "border-accent/30 bg-accent/10 text-accent" : "border-border text-muted-foreground")} data-testid="status-live"><i className={cn("h-1.5 w-1.5 rounded-full", isLive ? "bg-accent animate-pulse" : "bg-muted-foreground")} />{isLive ? "Live" : "Standby"}</span>
             </div>
-             <div className="relative z-10 mt-12 flex items-center justify-center">
+             <div className="relative z-10 mt-8 flex items-center justify-center sm:mt-10">
               <div className={cn("pointer-events-none absolute h-56 w-56 rounded-full border border-primary/20", playing && "animate-[ping_3s_ease-out_infinite]")} />
               <button
                 type="button"
@@ -277,17 +274,17 @@ export default function Home() {
                 </span>
               </button>
             </div>
-             <div className="relative z-10 mt-12 text-center">
+             <div className="relative z-10 mt-8 text-center sm:mt-9">
               <div className="flex justify-center"><SignalBars active={playing} /></div>
               <h2 className="mt-4 font-display text-3xl font-semibold tracking-tight" data-testid="text-show-name">{config.showName || "USALB RADIO"}</h2>
               <p className="mt-2 text-sm text-muted-foreground">{config.hostName || "USALB Studio"} · {config.genre || "Albanian radio"}</p>
             </div>
-              <div className="relative z-10 mt-8 flex items-center gap-3 rounded-xl border border-border bg-background/60 p-3">
+              <div className="relative z-10 mt-7 flex items-center gap-3 rounded-xl border border-border bg-background/60 p-3">
               <button onClick={() => { setMuted(!muted); if (audioRef.current) audioRef.current.volume = muted ? volume : 0; }} className="rounded-lg p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground" data-testid="button-toggle-mute">{muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button>
               <input aria-label="Volume" type="range" min="0" max="1" step=".01" value={muted ? 0 : volume} onChange={(e) => { setVolume(Number(e.target.value)); setMuted(false); }} className="h-1 w-full accent-[hsl(var(--primary))]" data-testid="input-volume" />
               <span className="font-mono text-[10px] text-muted-foreground">{Math.round((muted ? 0 : volume) * 100)}%</span>
             </div>
-              <div className="relative z-10 mt-4 flex items-center justify-between text-[11px] text-muted-foreground"><span className="flex items-center gap-2"><Wifi className={cn("h-3.5 w-3.5", reconnecting ? "text-accent animate-pulse" : "text-accent")} /> {reconnecting ? "Reconnecting…" : "Ready · 128 kbps MP3"}</span><span>Updated {lastUpdated}</span></div>
+              <div className="relative z-10 mt-3 flex items-center justify-between text-[11px] text-muted-foreground"><span className="flex items-center gap-2"><Wifi className={cn("h-3.5 w-3.5", reconnecting ? "text-accent animate-pulse" : "text-accent")} /> {reconnecting ? "Reconnecting…" : "Ready · 128 kbps MP3"}</span><span>Updated {lastUpdated}</span></div>
           </div>
         </div>
       </section>
