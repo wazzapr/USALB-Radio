@@ -48,6 +48,14 @@ jobs:
           Set-Content -Path "publish\README.txt" -Value "USALB Broadcaster. Run USALBBroadcaster.exe."
           Compress-Archive -Path "publish\*" -DestinationPath "$env:GITHUB_WORKSPACE\USALB-Broadcaster-Windows.zip" -Force
 
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: USALB-Broadcaster-win-x64
+          path: USALB-Broadcaster-Windows.zip
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
