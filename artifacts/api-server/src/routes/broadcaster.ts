@@ -12,7 +12,7 @@ import {
 } from "@workspace/api-zod";
 import { broadcasterDevicesTable, db, streamEventsTable } from "@workspace/db";
 import { recordBroadcasterHeartbeat } from "../lib/radio-state";
-import { beginIngest, endIngest, getStreamSnapshot, ingestChunk, openListener } from "../lib/stream-hub";
+import { beginIngest, endIngest, ingestChunk } from "../lib/stream-hub";
 
 const router: IRouter = Router();
 
@@ -236,15 +236,5 @@ router.post("/radio-ingest", async (req, res): Promise<void> => {
   req.on("close", () => endIngest(req));
 });
 
-router.get("/radio-stream", (_req, res): void => {
-  const snapshot = getStreamSnapshot();
-  if (!snapshot.streaming) {
-    res.status(503).json({ error: "Radio is offline" });
-    return;
-  }
-  if (!openListener(res)) {
-    res.status(503).json({ error: "Radio stream is not ready" });
-  }
-});
 
 export default router;
