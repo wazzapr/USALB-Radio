@@ -5,9 +5,6 @@ import { Copy, Download, ExternalLink, Globe2, Headphones, Info, Link2, LoaderCi
 import { cn } from "@/lib/utils";
 
 const logoSrc = "/usalb-logo-transparent.png";
-type QualityChoice = "auto" | "320" | "192" | "128" | "64";
-const QUALITY_LABELS: Record<QualityChoice, string> = { auto: "Auto", "320": "320 kbps", "192": "192 kbps", "128": "128 kbps", "64": "64 kbps" };
-const streamUrlFor = (quality: Exclude<QualityChoice, "auto">) => quality === "320" ? "/api/live/stream" : `/api/live/stream-${quality}`;
 const fallback = { stationName: "USALB RADIO", tagline: "Zëri që të mban afër.", genre: "Albanian hits · Talk · Culture", hostName: "USALB Studio", showName: "Live from the studio", sourceType: "browser", isLive: false };
 
 function SignalBars({ active }: { active: boolean }) {
@@ -21,15 +18,8 @@ export default function Home() {
   const [volume, setVolume] = useState(.82);
   const [muted, setMuted] = useState(false);
   const [error, setError] = useState("");
-  const [broadcastLive, setBroadcastLive] = useState<boolean | null>(null);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
-  const [qualityChoice, setQualityChoice] = useState<QualityChoice>("auto");
-  const [activeQuality, setActiveQuality] = useState<Exclude<QualityChoice, "auto">>("320");
-  const qualityRef = useRef<QualityChoice>("auto");
-  const activeQualityRef = useRef<Exclude<QualityChoice, "auto">>("320");
-  const qualityMonitorRef = useRef<number | null>(null);
-  const stableQualitySinceRef = useRef(0);
   const stationQuery = useGetStation({ query: { queryKey: getGetStationQueryKey(), refetchInterval: 10000 } });
   const statusQuery = useGetStreamStatus({ query: { queryKey: getGetStreamStatusQueryKey(), refetchInterval: 5000 } });
   const station = stationQuery.data;
@@ -43,7 +33,7 @@ export default function Home() {
     sourceType: "browser",
     isLive: status?.isLive ?? false,
   };
-  const isLive = broadcastLive ?? status?.isLive ?? config.isLive;
+  const isLive = status?.isLive ?? config.isLive;
   const updated = status?.lastHeartbeat;
   const shouldReconnectRef = useRef(false);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -60,26 +50,6 @@ export default function Home() {
     };
     window.addEventListener("beforeinstallprompt", handleInstallPrompt);
     return () => window.removeEventListener("beforeinstallprompt", handleInstallPrompt);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const response = await fetch("/api/live/status", { cache: "no-store" });
-        if (!response.ok) return;
-        const data = await response.json() as { live?: boolean };
-        if (!cancelled) setBroadcastLive(data.live === true);
-      } catch {
-        // The player can continue using the native audio connection even if status polling fails.
-      }
-    };
-    void poll();
-    const timer = window.setInterval(() => void poll(), 2000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
   }, []);
 
   useEffect(() => {
@@ -118,27 +88,13 @@ export default function Home() {
     }
   };
 
-  const chooseAutoQuality = (): Exclude<QualityChoice, "auto"> => {
-    const connection = (navigator as Navigator & { connection?: { downlink?: number; effectiveType?: string } }).connection;
-    const downlink = connection?.downlink ?? 10;
-    if (downlink < 0.8) return "64";
-    if (downlink < 1.8) return "128";
-    if (downlink < 3.2) return "192";
-    return "320";
-  };
-
-  const selectedQuality = (): Exclude<QualityChoice, "auto"> => qualityRef.current === "auto" ? chooseAutoQuality() : qualityRef.current;
-
-  const startNativeStream = async (requested?: Exclude<QualityChoice, "auto">) => {
+  const startNativeStream = async () => {
     setLoading(true);
     setError("");
     try {
       const audio = audioRef.current;
       if (!audio) throw new Error("The radio player is not ready yet.");
-      const nextQuality = requested ?? selectedQuality();
-      activeQualityRef.current = nextQuality;
-      setActiveQuality(nextQuality);
-      audio.src = streamUrlFor(nextQuality);
+      audio.src = "/api/radio-stream";
       audio.preload = "none";
       audio.volume = muted ? 0 : volume;
       await audio.play();
@@ -168,57 +124,6 @@ export default function Home() {
       startNativeStream();
     }, delay * 1000);
   };
-
-  const changeQuality = async (choice: QualityChoice) => {
-    qualityRef.current = choice;
-    setQualityChoice(choice);
-    if (!playing) return;
-    shouldReconnectRef.current = true;
-    clearReconnectTimer();
-    const next = choice === "auto" ? chooseAutoQuality() : choice;
-    stopNativeStream();
-    setLoading(true);
-    await startNativeStream(next);
-  };
-
-  useEffect(() => {
-    qualityRef.current = qualityChoice;
-  }, [qualityChoice]);
-
-  useEffect(() => {
-    if (!playing || qualityChoice !== "auto") return;
-    qualityMonitorRef.current = window.setInterval(() => {
-      const audio = audioRef.current;
-      if (!audio) return;
-      const connection = (navigator as Navigator & { connection?: { downlink?: number } }).connection;
-      const downlink = connection?.downlink ?? 10;
-      const bufferSeconds = audio.buffered.length ? Math.max(0, audio.buffered.end(audio.buffered.length - 1) - audio.currentTime) : 0;
-      const current = activeQualityRef.current;
-      let target = current;
-      if (bufferSeconds < 1.2 || downlink < 0.8) target = "64";
-      else if (bufferSeconds < 2.2 || downlink < 1.8) target = "128";
-      else if (bufferSeconds < 3.5 || downlink < 3.2) target = "192";
-      else if (bufferSeconds > 6 && downlink >= 3.2) target = "320";
-      if (target !== current) {
-        const now = Date.now();
-        if (!stableQualitySinceRef.current) stableQualitySinceRef.current = now;
-        const holdMs = Number(target) < Number(current) ? 2500 : 12000;
-        if (now - stableQualitySinceRef.current >= holdMs) {
-          stableQualitySinceRef.current = 0;
-          shouldReconnectRef.current = true;
-          stopNativeStream();
-          setLoading(true);
-          void startNativeStream(target);
-        }
-      } else {
-        stableQualitySinceRef.current = 0;
-      }
-    }, 2000);
-    return () => {
-      if (qualityMonitorRef.current !== null) window.clearInterval(qualityMonitorRef.current);
-      qualityMonitorRef.current = null;
-    };
-  }, [playing, qualityChoice]);
 
   const toggle = async () => {
     if (playing) {
@@ -282,7 +187,7 @@ export default function Home() {
     <main className="min-h-[100dvh] overflow-hidden">
       <header className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-5 sm:px-8 sm:py-6">
         <Link href="/" className="flex items-center gap-3" data-testid="link-home">
-           <img src={logoSrc} alt="USALB RADIO" className="h-14 w-16 object-contain sm:h-16 sm:w-[4.5rem]" data-testid="img-station-logo" />
+           <img src={logoSrc} alt="USALB RADIO" className="h-14 w-14 object-contain sm:h-16 sm:w-16" data-testid="img-station-logo" />
            <span className="font-display text-lg font-bold tracking-tight">USALB <span className="text-primary">RADIO</span></span>
         </Link>
         <nav className="flex items-center gap-3">
@@ -350,7 +255,7 @@ export default function Home() {
           <div className="absolute -inset-3 rounded-[2rem] border border-primary/10" />
            <div className="glass relative overflow-hidden rounded-[1.7rem] border border-border p-5 shadow-2xl sm:p-7">
              <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center" aria-hidden="true">
-              <img src={logoSrc} alt="" className="h-[78%] w-[78%] object-contain opacity-20 mix-blend-screen" />
+              <img src={logoSrc} alt="" className="h-44 w-44 object-contain opacity-10 mix-blend-screen sm:h-52 sm:w-52" />
             </div>
             <div className="absolute right-0 top-0 h-52 w-52 rounded-full bg-primary/10 blur-3xl" />
              <div className="relative z-10 flex items-center justify-between">
@@ -382,13 +287,7 @@ export default function Home() {
               <input aria-label="Volume" type="range" min="0" max="1" step=".01" value={muted ? 0 : volume} onChange={(e) => { setVolume(Number(e.target.value)); setMuted(false); }} className="h-1 w-full accent-[hsl(var(--primary))]" data-testid="input-volume" />
               <span className="font-mono text-[10px] text-muted-foreground">{Math.round((muted ? 0 : volume) * 100)}%</span>
             </div>
-            <div className="relative z-10 mt-3 flex items-center justify-between gap-3 rounded-xl border border-border bg-background/60 px-3 py-2">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Quality</span>
-              <select aria-label="Stream quality" value={qualityChoice} onChange={(e) => void changeQuality(e.target.value as QualityChoice)} className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground outline-none">
-                {(["auto","320","192","128","64"] as QualityChoice[]).map((q) => <option key={q} value={q}>{QUALITY_LABELS[q]}{q !== "auto" && q === activeQuality ? " · active" : ""}</option>)}
-              </select>
-            </div>
-              <div className="relative z-10 mt-4 flex items-center justify-between text-[11px] text-muted-foreground"><span className="flex items-center gap-2"><Wifi className={cn("h-3.5 w-3.5", reconnecting ? "text-accent animate-pulse" : "text-accent")} /> {reconnecting ? "Reconnecting…" : `Ready · ${QUALITY_LABELS[activeQuality]}`}</span><span>Updated {lastUpdated}</span></div>
+              <div className="relative z-10 mt-4 flex items-center justify-between text-[11px] text-muted-foreground"><span className="flex items-center gap-2"><Wifi className={cn("h-3.5 w-3.5", reconnecting ? "text-accent animate-pulse" : "text-accent")} /> {reconnecting ? "Reconnecting…" : "Ready · 128 kbps MP3"}</span><span>Updated {lastUpdated}</span></div>
           </div>
         </div>
       </section>
