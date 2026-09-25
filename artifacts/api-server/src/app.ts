@@ -5,6 +5,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { handleLiveStreamRequest } from "./lib/live-relay";
+import { handleLiquidsoapStreamRequest } from "./lib/liquidsoap";
 
 const app: Express = express();
 
@@ -36,6 +37,7 @@ app.use(express.urlencoded({ extended: true }));
 // router so /api/radio-stream is handled by the same relay that receives
 // /api/live/ws audio.
 app.use((req, res, next) => {
+  if (handleLiquidsoapStreamRequest(req, res)) return;
   if (handleLiveStreamRequest(req, res)) return;
   next();
 });
