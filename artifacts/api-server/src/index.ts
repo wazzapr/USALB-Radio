@@ -6,7 +6,6 @@ import { randomUUID } from "node:crypto";
 import { addListener } from "./lib/radio-state";
 import { createServer } from "node:http";
 import { attachLiveRelay } from "./lib/live-relay";
-import { ensureLiquidsoap } from "./lib/liquidsoap";
 
 const rawPort = process.env["PORT"];
 
@@ -50,7 +49,6 @@ server.on("upgrade", (request, socket, head) => {
 });
 
 await ensureSeedData();
-await ensureLiquidsoap();
 attachLiveRelay(server);
 
 server.listen(port, () => {
