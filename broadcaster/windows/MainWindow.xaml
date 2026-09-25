@@ -1,83 +1,126 @@
 <Window x:Class="USALB.Broadcaster.MainWindow"
- xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
- xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
- Title="USALB Broadcaster · Control Room" Width="900" Height="720"
- WindowStartupLocation="CenterScreen" Background="#0B0E13" Foreground="White">
-<Grid Margin="26">
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="USALB Radio · Broadcaster" Width="1180" Height="820"
+        MinWidth="1000" MinHeight="720" WindowStartupLocation="CenterScreen"
+        Background="#090C11" Foreground="White">
+<Grid Margin="22">
 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+
 <StackPanel>
- <TextBlock Text="USALB RADIO" FontSize="30" FontWeight="Bold"/>
- <TextBlock Text="BROADCASTER · CONTROL ROOM" FontSize="12" FontWeight="SemiBold" Foreground="#8E96A5" Margin="0,2,0,18"/>
+  <TextBlock Text="USALB RADIO" FontSize="28" FontWeight="Bold"/>
+  <TextBlock Text="BROADCASTER · LIVE MIXER" FontSize="12" FontWeight="SemiBold" Foreground="#8E96A5" Margin="0,2,0,18"/>
 </StackPanel>
-<Grid Grid.Row="1">
-<Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-<StackPanel Grid.Column="0" Margin="0,0,18,0">
- <Border Background="#151922" CornerRadius="16" Padding="18" Margin="0,0,0,14">
-  <StackPanel>
-   <TextBlock Text="BROADCAST" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
-   <TextBlock x:Name="LiveStateText" Text="OFFLINE" FontSize="24" FontWeight="Bold" Margin="0,6,0,0"/>
-   <Button x:Name="LiveButton" Content="GO LIVE" Height="58" Margin="0,16,0,0" FontSize="18" FontWeight="Bold" Click="LiveButton_Click"/>
-   <TextBlock x:Name="StatusText" Text="Ready — opening this app does not stream." Margin="0,12,0,0" Foreground="#AEB4C0" TextWrapping="Wrap"/>
-  </StackPanel>
- </Border>
- <Border Background="#151922" CornerRadius="16" Padding="18" Margin="0,0,0,14">
-  <StackPanel>
-   <TextBlock Text="AUDIO INPUTS" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
-   <CheckBox x:Name="SystemAudioBox" Content="Windows system audio (loopback)" IsChecked="True" Margin="0,12,0,0"/>
-   <CheckBox x:Name="MicBox" Content="Microphone" Margin="0,10,0,0"/>
-   <Grid Margin="0,14,0,0">
-    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/></Grid.ColumnDefinitions>
-    <TextBlock Text="Music volume" VerticalAlignment="Center"/>
-    <Slider x:Name="MusicVolume" Grid.Column="1" Minimum="0" Maximum="100" Value="100"/>
-   </Grid>
-   <Grid Margin="0,10,0,0">
-    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/></Grid.ColumnDefinitions>
-    <TextBlock Text="Mic volume" VerticalAlignment="Center"/>
-    <Slider x:Name="MicVolume" Grid.Column="1" Minimum="0" Maximum="100" Value="100"/>
-   </Grid>
-  </StackPanel>
- </Border>
- <Border Background="#151922" CornerRadius="16" Padding="18">
-  <StackPanel>
-   <TextBlock Text="CONNECTION" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
-   <TextBlock Text="USALB server" Margin="0,10,0,0"/>
-   <TextBox x:Name="ServerBox" Text="https://usalb-radio--applauncher.replit.app" Margin="0,5,0,0" Padding="9" Background="#0D1016" Foreground="White" BorderBrush="#303541"/>
-   <TextBlock Text="Broadcaster key" FontSize="11" Foreground="#8E96A5" Margin="0,10,0,0"/>
-   <PasswordBox x:Name="KeyBox" Margin="0,5,0,0" Padding="9" Background="#0D1016" Foreground="White" BorderBrush="#303541"/>
-  </StackPanel>
- </Border>
+
+<ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+<Grid>
+<Grid.ColumnDefinitions><ColumnDefinition Width="1.25*"/><ColumnDefinition Width="1.25*"/><ColumnDefinition Width="1*"/></Grid.ColumnDefinitions>
+
+<StackPanel Grid.Column="0" Margin="0,0,12,0">
+<Border Background="#151922" CornerRadius="14" Padding="18" Margin="0,0,0,12">
+<StackPanel>
+<TextBlock Text="BROADCAST" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
+<TextBlock x:Name="LiveStateText" Text="OFFLINE" FontSize="26" FontWeight="Bold" Margin="0,6,0,0"/>
+<Button x:Name="LiveButton" Content="GO LIVE" Height="58" Margin="0,14,0,0" FontSize="18" FontWeight="Bold" Click="LiveButton_Click"/>
+<TextBlock x:Name="StatusText" Text="Ready — opening this app does not stream." Margin="0,10,0,0" Foreground="#AEB4C0" TextWrapping="Wrap"/>
+<CheckBox x:Name="ReconnectBox" Content="Auto reconnect if connection drops" IsChecked="True" Margin="0,12,0,0"/>
 </StackPanel>
-<StackPanel Grid.Column="1">
- <Border Background="#151922" CornerRadius="16" Padding="18" Margin="0,0,0,14">
-  <StackPanel>
-   <TextBlock Text="LIVE MONITOR" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
-   <TextBlock Text="Listeners" FontSize="12" Foreground="#8E96A5" Margin="0,14,0,0"/>
-   <TextBlock x:Name="ListenerCountText" Text="0" FontSize="32" FontWeight="Bold"/>
-   <TextBlock Text="Stream" FontSize="12" Foreground="#8E96A5" Margin="0,14,0,0"/>
-   <TextBlock x:Name="ConnectionText" Text="OFFLINE" FontWeight="SemiBold"/>
-   <TextBlock Text="Bitrate" FontSize="12" Foreground="#8E96A5" Margin="0,14,0,0"/>
-   <TextBlock x:Name="BitrateText" Text="—"/>
-   <TextBlock Text="Sample rate" FontSize="12" Foreground="#8E96A5" Margin="0,10,0,0"/>
-   <TextBlock x:Name="SampleRateText" Text="—"/>
-  </StackPanel>
- </Border>
- <Border Background="#151922" CornerRadius="16" Padding="18" Margin="0,0,0,14">
-  <StackPanel>
-   <TextBlock Text="NOW PLAYING" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
-   <TextBlock x:Name="ArtistText" Text="—" FontSize="16" FontWeight="SemiBold" Margin="0,12,0,0"/>
-   <TextBlock x:Name="TitleText" Text="—" FontSize="22" FontWeight="Bold" TextWrapping="Wrap"/>
-  </StackPanel>
- </Border>
- <Border Background="#151922" CornerRadius="16" Padding="18">
-  <StackPanel>
-   <TextBlock Text="STATION" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
-   <TextBlock x:Name="StationText" Text="USALB Radio" FontSize="18" FontWeight="Bold" Margin="0,10,0,0"/>
-   <TextBlock Text="44.1 kHz · Stereo · server-side MP3" Foreground="#AEB4C0" Margin="0,4,0,0"/>
-   <TextBlock Text="One broadcaster connection · no browser capture" Foreground="#AEB4C0" Margin="0,10,0,0" TextWrapping="Wrap"/>
-  </StackPanel>
- </Border>
+</Border>
+
+<Border Background="#151922" CornerRadius="14" Padding="18" Margin="0,0,0,12">
+<StackPanel>
+<TextBlock Text="INPUTS" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
+<CheckBox x:Name="SystemAudioBox" Content="Windows system audio (loopback)" IsChecked="True" Margin="0,12,0,0"/>
+<CheckBox x:Name="MicBox" Content="Microphone" Margin="0,9,0,0"/>
+<TextBlock Text="MUSIC" Foreground="#8E96A5" FontSize="11" FontWeight="Bold" Margin="0,16,0,0"/>
+<Slider x:Name="MusicVolume" Minimum="0" Maximum="100" Value="100"/>
+<TextBlock Text="MIC" Foreground="#8E96A5" FontSize="11" FontWeight="Bold" Margin="0,8,0,0"/>
+<Slider x:Name="MicVolume" Minimum="0" Maximum="100" Value="100"/>
+<TextBlock Text="MASTER" Foreground="#8E96A5" FontSize="11" FontWeight="Bold" Margin="0,8,0,0"/>
+<Slider x:Name="MasterVolume" Minimum="0" Maximum="100" Value="100"/>
+</StackPanel>
+</Border>
+
+<Border Background="#151922" CornerRadius="14" Padding="18">
+<StackPanel>
+<TextBlock Text="CONNECTION" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
+<TextBlock Text="USALB server" Margin="0,10,0,0"/>
+<TextBox x:Name="ServerBox" Text="https://usalb-radio--applauncher.replit.app" Margin="0,5,0,0" Padding="8" Background="#0D1016" Foreground="White" BorderBrush="#303541"/>
+<TextBlock Text="Broadcaster key" FontSize="11" Foreground="#8E96A5" Margin="0,10,0,0"/>
+<PasswordBox x:Name="KeyBox" Margin="0,5,0,0" Padding="8" Background="#0D1016" Foreground="White" BorderBrush="#303541"/>
+<TextBlock x:Name="PairingText" Text="Pair the broadcaster in the web Control Room, then paste its private key here." Foreground="#8E96A5" FontSize="11" TextWrapping="Wrap" Margin="0,9,0,0"/>
+</StackPanel>
+</Border>
+</StackPanel>
+
+<StackPanel Grid.Column="1" Margin="0,0,12,0">
+<Border Background="#151922" CornerRadius="14" Padding="18" Margin="0,0,0,12">
+<StackPanel>
+<TextBlock Text="MIXER" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
+<TextBlock Text="3-band master EQ" FontSize="16" FontWeight="SemiBold" Margin="0,10,0,0"/>
+<TextBlock Text="BASS" Foreground="#8E96A5" FontSize="11" Margin="0,12,0,0"/>
+<Slider x:Name="BassGain" Minimum="-12" Maximum="12" Value="0"/>
+<TextBlock Text="MID" Foreground="#8E96A5" FontSize="11" Margin="0,8,0,0"/>
+<Slider x:Name="MidGain" Minimum="-12" Maximum="12" Value="0"/>
+<TextBlock Text="TREBLE" Foreground="#8E96A5" FontSize="11" Margin="0,8,0,0"/>
+<Slider x:Name="TrebleGain" Minimum="-12" Maximum="12" Value="0"/>
+<CheckBox x:Name="LimiterBox" Content="Master limiter / peak protection" IsChecked="True" Margin="0,14,0,0"/>
+</StackPanel>
+</Border>
+
+<Border Background="#151922" CornerRadius="14" Padding="18" Margin="0,0,0,12">
+<StackPanel>
+<TextBlock Text="AUDIO ENGINE" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
+<TextBlock Text="44.1 kHz · Stereo · 16-bit PCM" FontSize="16" FontWeight="SemiBold" Margin="0,10,0,0"/>
+<TextBlock Text="Windows WASAPI loopback → USALB Broadcaster → Liquidsoap → 320 kbps MP3" Foreground="#AEB4C0" TextWrapping="Wrap" Margin="0,5,0,0"/>
+<TextBlock x:Name="MeterText" Text="Input meter: —" FontSize="13" Margin="0,14,0,0"/>
+<TextBlock x:Name="AudioEngineText" Text="Audio engine ready" Foreground="#8E96A5" Margin="0,5,0,0"/>
+</StackPanel>
+</Border>
+
+<Border Background="#151922" CornerRadius="14" Padding="18">
+<StackPanel>
+<TextBlock Text="LIVE MONITOR" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
+<TextBlock Text="Listeners" FontSize="11" Foreground="#8E96A5" Margin="0,12,0,0"/>
+<TextBlock x:Name="ListenerCountText" Text="0" FontSize="30" FontWeight="Bold"/>
+<TextBlock Text="Stream" FontSize="11" Foreground="#8E96A5" Margin="0,12,0,0"/>
+<TextBlock x:Name="ConnectionText" Text="OFFLINE" FontWeight="SemiBold"/>
+<TextBlock Text="Bitrate" FontSize="11" Foreground="#8E96A5" Margin="0,10,0,0"/>
+<TextBlock x:Name="BitrateText" Text="—"/>
+<TextBlock Text="Sample rate" FontSize="11" Foreground="#8E96A5" Margin="0,8,0,0"/>
+<TextBlock x:Name="SampleRateText" Text="—"/>
+</StackPanel>
+</Border>
+</StackPanel>
+
+<StackPanel Grid.Column="2">
+<Border Background="#151922" CornerRadius="14" Padding="18" Margin="0,0,0,12">
+<StackPanel>
+<TextBlock Text="NOW PLAYING" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
+<TextBlock x:Name="ArtistText" Text="—" FontSize="15" FontWeight="SemiBold" Margin="0,12,0,0"/>
+<TextBlock x:Name="TitleText" Text="—" FontSize="21" FontWeight="Bold" TextWrapping="Wrap"/>
+</StackPanel>
+</Border>
+
+<Border Background="#151922" CornerRadius="14" Padding="18" Margin="0,0,0,12">
+<StackPanel>
+<TextBlock Text="STATION" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
+<TextBlock x:Name="StationText" Text="USALB Radio" FontSize="18" FontWeight="Bold" Margin="0,10,0,0"/>
+<TextBlock Text="Live system-audio broadcaster" Foreground="#AEB4C0" Margin="0,4,0,0"/>
+<TextBlock Text="Liquidsoap radio engine · 320 kbps MP3" Foreground="#AEB4C0" Margin="0,8,0,0" TextWrapping="Wrap"/>
+</StackPanel>
+</Border>
+
+<Border Background="#151922" CornerRadius="14" Padding="18">
+<StackPanel>
+<TextBlock Text="QUICK INFO" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
+<TextBlock Text="Play YouTube Music, YouTube, Spotify or any Windows audio source. The broadcaster captures the Windows output — it does not download the media." Foreground="#AEB4C0" TextWrapping="Wrap" Margin="0,10,0,0"/>
+</StackPanel>
+</Border>
 </StackPanel>
 </Grid>
-<TextBlock Grid.Row="2" x:Name="FooterText" Text="Control Room ready" Foreground="#6F7785" Margin="0,14,0,0"/>
+</ScrollViewer>
+
+<TextBlock Grid.Row="2" x:Name="FooterText" Text="Control Room · ready" Foreground="#6F7785" Margin="0,12,0,0"/>
 </Grid>
 </Window>
