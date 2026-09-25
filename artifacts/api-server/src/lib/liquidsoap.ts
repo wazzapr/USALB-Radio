@@ -1,1 +1,29 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";\nimport { existsSync } from "node:fs";\nimport { resolve } from "node:path";\n\nlet processRef: ChildProcessWithoutNullStreams | null = null;\nlet starting: Promise<boolean> | null = null;\n\nfunction scriptPath(): string {\n  return resolve(process.cwd(), "liquidsoap", "radio.liq");\n}\n\nexport function liquidsoapPassword(): string {\n  return process.env.USALB_LIQUIDSOAP_SOURCE_PASSWORD?.trim() || "usalb-internal-source";\n}\n\nexport async function ensureLiquidsoap(): Promise<boolean> {\n  if (process.env.DISABLE_LIQUIDSOAP === "1") return false;\n  if (processRef && processRef.exitCode === null && !processRef.killed) return true;\n  if (starting) return starting;\n\n  starting = (async () => {\n    const script = scriptPath();\n    if (!existsSync(script)) {\n      console.error("[USALB Liquidsoap] script not found:", script);\n      return false;\n    }\n    const child = spawn(process.env.LIQUIDSOAP_PATH || "liquidsoap", ["-v", script], {\n      cwd: process.cwd(), env: process.env, stdio: ["ignore", "pipe", "pipe"],\n    });\n    processRef = child;\n    child.stdout.on("data", (chunk) => console.log(`[Liquidsoap] ${chunk.toString().trimEnd()}`));\n    child.stderr.on("data", (chunk) => console.error(`[Liquidsoap] ${chunk.toString().trimEnd()}`));\n    child.once("exit", (code, signal) => {\n      console.error(`[USALB Liquidsoap] exited code=${code ?? "null"} signal=${signal ?? "null"}`);\n      if (processRef === child) processRef = null;\n    });\n    child.once("error", (error) => {\n      console.error("[USALB Liquidsoap] failed to start:", error.message);\n      if (processRef === child) processRef = null;\n    });\n    await new Promise((resolveDelay) => setTimeout(resolveDelay, 1200));\n    return processRef === child && child.exitCode === null;\n  })().finally(() => { starting = null; });\n  return starting;\n}\n\nexport function liquidsoapRunning(): boolean {\n  return !!processRef && processRef.exitCode === null && !processRef.killed;\n}\n\nexport function stopLiquidsoap(): void {\n  if (!processRef) return;\n  try { processRef.kill("SIGTERM"); } catch {}\n  processRef = null;\n}
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { get as httpGet, type IncomingMessage, type ServerResponse } from "node:http";\nimport { existsSync } from "node:fs";\nimport { resolve } from "node:path";\n\nlet processRef: ChildProcessWithoutNullStreams | null = null;\nlet starting: Promise<boolean> | null = null;\n\nfunction scriptPath(): string {\n  return resolve(process.cwd(), "liquidsoap", "radio.liq");\n}\n\nexport function liquidsoapPassword(): string {\n  return process.env.USALB_LIQUIDSOAP_SOURCE_PASSWORD?.trim() || "usalb-internal-source";\n}\n\nexport async function ensureLiquidsoap(): Promise<boolean> {\n  if (process.env.DISABLE_LIQUIDSOAP === "1") return false;\n  if (processRef && processRef.exitCode === null && !processRef.killed) return true;\n  if (starting) return starting;\n\n  starting = (async () => {\n    const script = scriptPath();\n    if (!existsSync(script)) {\n      console.error("[USALB Liquidsoap] script not found:", script);\n      return false;\n    }\n    const child = spawn(process.env.LIQUIDSOAP_PATH || "liquidsoap", ["-v", script], {\n      cwd: process.cwd(), env: process.env, stdio: ["ignore", "pipe", "pipe"],\n    });\n    processRef = child;\n    child.stdout.on("data", (chunk) => console.log(`[Liquidsoap] ${chunk.toString().trimEnd()}`));\n    child.stderr.on("data", (chunk) => console.error(`[Liquidsoap] ${chunk.toString().trimEnd()}`));\n    child.once("exit", (code, signal) => {\n      console.error(`[USALB Liquidsoap] exited code=${code ?? "null"} signal=${signal ?? "null"}`);\n      if (processRef === child) processRef = null;\n    });\n    child.once("error", (error) => {\n      console.error("[USALB Liquidsoap] failed to start:", error.message);\n      if (processRef === child) processRef = null;\n    });\n    await new Promise((resolveDelay) => setTimeout(resolveDelay, 1200));\n    return processRef === child && child.exitCode === null;\n  })().finally(() => { starting = null; });\n  return starting;\n}\n\nexport function liquidsoapRunning(): boolean {\n  return !!processRef && processRef.exitCode === null && !processRef.killed;\n}\n\nexport function stopLiquidsoap(): void {\n  if (!processRef) return;\n  try { processRef.kill("SIGTERM"); } catch {}\n  processRef = null;\n}
+
+export function handleLiquidsoapStreamRequest(req: IncomingMessage, res: ServerResponse): boolean {
+  if (req.method !== "GET" || !liquidsoapRunning()) return false;
+  const upstream = httpGet("http://127.0.0.1:8006/stream", (response) => {
+    res.statusCode = response.statusCode ?? 502;
+    for (const [key, value] of Object.entries(response.headers)) {
+      if (value !== undefined) res.setHeader(key, value as string | string[]);
+    }
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.setHeader("X-Accel-Buffering", "no");
+    response.pipe(res);
+    response.on("error", () => { if (!res.writableEnded) res.destroy(); });
+  });
+  upstream.on("error", (error) => {
+    console.error("[USALB Liquidsoap listener]", error.message);
+    if (!res.headersSent) {
+      res.statusCode = 503;
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.end("USALB Liquidsoap stream is unavailable.");
+    } else {
+      res.destroy();
+    }
+  });
+  req.on("close", () => { if (!upstream.destroyed) upstream.destroy(); });
+  return true;
+}
