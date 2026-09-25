@@ -7,11 +7,11 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 const LIVE_SOCKET_PATH = "/api/live/ws";
 const PCM_MAGIC = Buffer.from([0x50, 0x43, 0x4d, 0x31]);
 const MAX_RECENT_BYTES = 96 * 1024;
-const QUALITY_PATHS = new Map<string, 320 | 192 | 128 | 64>([
-  ["/api/live/stream", 320], ["/api/radio-stream", 320], ["/api/live/stream-320", 320],
-  ["/api/live/stream-192", 192], ["/api/live/stream-128", 128], ["/api/live/stream-64", 64],
+const QUALITY_PATHS = new Map<string, 320>([
+  ["/api/live/stream", 320],
+  ["/api/live/stream-320", 320],
 ]);
-type Quality = 320 | 192 | 128 | 64;
+type Quality = 320;
 type Encoder = { bitrate: Quality; process: ChildProcessWithoutNullStreams; recentChunks: Buffer[]; recentBytes: number };
 const encoders = new Map<Quality, Encoder>();
 let liquidsoapFeed: ClientRequest | null = null;
@@ -93,7 +93,7 @@ function spawnEncoder(bitrate: Quality): Encoder {
 function startEncoders(): boolean {
   stopEncoders();
   try {
-    for (const bitrate of [320, 192, 128, 64] as Quality[]) encoders.set(bitrate, spawnEncoder(bitrate));
+    encoders.set(320, spawnEncoder(320));
     return true;
   } catch { stopEncoders(); return false; }
 }
@@ -138,7 +138,7 @@ function relay(chunk: Buffer): void {
 
 function announceWsStatus(): void {
   for (const socket of wsListeners) {
-    sendJson(socket, { type: "status", live, audioMode: broadcastMode, sampleRate: pcmSampleRate, channels: pcmChannels, qualities: live && broadcastMode === "pcm" ? [320, 192, 128, 64] : live ? [320] : [] });
+    sendJson(socket, { type: "status", live, audioMode: broadcastMode, sampleRate: pcmSampleRate, channels: pcmChannels, qualities: live ? [320] : [] });
   }
 }
 
@@ -261,7 +261,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
           live: true,
           codec: broadcastMode,
           contentType: "audio/mpeg",
-          qualities: broadcastMode === "pcm" ? [320, 192, 128, 64] : [320],
+          qualities: [320],
         });
       } else if (message.type === "stop") {
         if (broadcaster === socket) reset();
@@ -282,7 +282,7 @@ export function getLiveSnapshot() {
     listenerCount: listeners.size,
     contentType: live ? "audio/mpeg" : null,
     bitrateKbps: live ? 320 : null,
-    qualities: live && broadcastMode === "pcm" ? [320, 192, 128, 64] : live ? [320] : [],
+    qualities: live ? [320] : [],
     startedAt,
     lastAudioAt,
     totalBytes,
