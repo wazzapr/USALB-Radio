@@ -8,6 +8,7 @@ const PCM_MAGIC = Buffer.from([0x50, 0x43, 0x4d, 0x31]);
 const MAX_RECENT_BYTES = 96 * 1024;
 const QUALITY_PATHS = new Map<string, 320>([
   ["/api/live/stream", 320],
+  ["/api/radio-stream", 320],
   ["/api/live/stream-320", 320],
 ]);
 type Quality = 320;
