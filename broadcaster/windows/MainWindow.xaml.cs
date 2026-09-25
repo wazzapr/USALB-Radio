@@ -2,13 +2,13 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Windows;
 using NAudio.Wave;
-using NAudio.Wave.SampleProviders;
 
 namespace USALB.Broadcaster;
 
 public partial class MainWindow : Window
 {
     const int SampleRate = 44100, Channels = 2, FrameMs = 20;
+
     ClientWebSocket? socket;
     WasapiLoopbackCapture? loopback;
     WaveInEvent? microphone;
@@ -20,12 +20,20 @@ public partial class MainWindow : Window
     ISampleProvider? micSamples;
     CancellationTokenSource? sessionCts;
     Task? sendTask;
-    volatile bool running;
 
-    public MainWindow() => InitializeComponent();
+    volatile bool running;
+    int stopping;
+
+    public MainWindow()
+    {
+        InitializeComponent();
+    }
 
     async void LiveButton_Click(object sender, RoutedEventArgs e)
     {
+        if (Interlocked.CompareExchange(ref stopping, 0, 0) != 0)
+            return;
+
         if (running)
         {
             await StopAsync();
@@ -35,6 +43,13 @@ public partial class MainWindow : Window
         try
         {
             await StartAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            if (!IsLoaded)
+                return;
+
+            await StopAsync();
         }
         catch (Exception ex)
         {
@@ -47,17 +62,27 @@ public partial class MainWindow : Window
     {
         var useSystemAudio = SystemAudioBox.IsChecked == true;
         var useMicrophone = MicBox.IsChecked == true;
+
         if (!useSystemAudio && !useMicrophone)
             throw new InvalidOperationException("Select at least one audio input.");
 
         var server = ServerBox.Text.Trim().TrimEnd('/');
-        if (!Uri.TryCreate(server, UriKind.Absolute, out var baseUri))
-            throw new InvalidOperationException("Enter a valid USALB server URL.");
+        if (!Uri.TryCreate(server, UriKind.Absolute, out var baseUri) ||
+            (baseUri.Scheme != Uri.UriSchemeHttps && baseUri.Scheme != Uri.UriSchemeHttp))
+            throw new InvalidOperationException("Enter a valid HTTP or HTTPS USALB server URL.");
 
         await StopAsync();
 
-        var scheme = baseUri.Scheme == "https" ? "wss" : "ws";
-        var wsUri = new Uri($"{scheme}://{baseUri.Host}{(baseUri.IsDefaultPort ? "" : ":" + baseUri.Port)}/api/live/ws?role=broadcaster");
+        // The cancellation source belongs to this LIVE session only.
+        // Opening the broadcaster never creates a socket or starts capture.
+        var cts = new CancellationTokenSource();
+        sessionCts = cts;
+        var token = cts.Token;
+
+        var scheme = baseUri.Scheme == Uri.UriSchemeHttps ? "wss" : "ws";
+        var port = baseUri.IsDefaultPort ? "" : ":" + baseUri.Port;
+        var wsUri = new Uri(
+            $"{scheme}://{baseUri.Host}{port}/api/live/ws?role=broadcaster");
 
         var ws = new ClientWebSocket();
         var key = KeyBox.Password.Trim();
@@ -65,56 +90,79 @@ public partial class MainWindow : Window
             ws.Options.SetRequestHeader("x-broadcaster-token", key);
 
         StatusText.Text = "Connecting to USALB…";
-        await ws.ConnectAsync(wsUri, CancellationToken.None);
-        socket = ws;
 
-        if (useSystemAudio)
+        try
         {
-            loopback = new WasapiLoopbackCapture();
-            musicBuffer = new BufferedWaveProvider(loopback.WaveFormat)
-            {
-                DiscardOnBufferOverflow = false,
-                ReadFully = true
-            };
-            musicResampler = new MediaFoundationResampler(
-                musicBuffer,
-                new WaveFormat(SampleRate, 16, Channels))
-            {
-                ResamplerQuality = 60
-            };
-            musicSamples = musicResampler.ToSampleProvider();
-            loopback.DataAvailable += (_, a) => musicBuffer.AddSamples(a.Buffer, 0, a.BytesRecorded);
-            loopback.StartRecording();
-        }
+            // Connect is owned by this LIVE session and is cancellable.
+            await ws.ConnectAsync(wsUri, token);
+            token.ThrowIfCancellationRequested();
+            socket = ws;
 
-        if (useMicrophone)
+            if (useSystemAudio)
+            {
+                loopback = new WasapiLoopbackCapture();
+                musicBuffer = new BufferedWaveProvider(loopback.WaveFormat)
+                {
+                    DiscardOnBufferOverflow = true,
+                    ReadFully = true
+                };
+                musicResampler = new MediaFoundationResampler(
+                    musicBuffer,
+                    new WaveFormat(SampleRate, 16, Channels))
+                {
+                    ResamplerQuality = 60
+                };
+                musicSamples = musicResampler.ToSampleProvider();
+                loopback.DataAvailable += (_, a) =>
+                {
+                    if (running)
+                        musicBuffer?.AddSamples(a.Buffer, 0, a.BytesRecorded);
+                };
+                loopback.StartRecording();
+            }
+
+            if (useMicrophone)
+            {
+                microphone = new WaveInEvent
+                {
+                    WaveFormat = new WaveFormat(SampleRate, 16, Channels)
+                };
+                micBuffer = new BufferedWaveProvider(microphone.WaveFormat)
+                {
+                    DiscardOnBufferOverflow = true,
+                    ReadFully = true
+                };
+                micResampler = new MediaFoundationResampler(
+                    micBuffer,
+                    new WaveFormat(SampleRate, 16, Channels))
+                {
+                    ResamplerQuality = 60
+                };
+                micSamples = micResampler.ToSampleProvider();
+                microphone.DataAvailable += (_, a) =>
+                {
+                    if (running)
+                        micBuffer?.AddSamples(a.Buffer, 0, a.BytesRecorded);
+                };
+                microphone.StartRecording();
+            }
+
+            await SendJsonAsync(
+                "{\"type\":\"start\",\"mimeType\":\"audio/pcm;rate=44100;channels=2\",\"codec\":\"pcm\",\"pcmSampleRate\":44100,\"pcmChannels\":2}",
+                token);
+
+            running = true;
+            LiveButton.Content = "STOP LIVE";
+            StatusText.Text = "LIVE · clean WASAPI capture → USALB server → adaptive MP3";
+
+            sendTask = Task.Run(() => SendMixedAudioAsync(token), token);
+        }
+        catch
         {
-            microphone = new WaveInEvent();
-            micBuffer = new BufferedWaveProvider(microphone.WaveFormat)
-            {
-                DiscardOnBufferOverflow = false,
-                ReadFully = true
-            };
-            micResampler = new MediaFoundationResampler(
-                micBuffer,
-                new WaveFormat(SampleRate, 16, Channels))
-            {
-                ResamplerQuality = 60
-            };
-            micSamples = micResampler.ToSampleProvider();
-            microphone.DataAvailable += (_, a) => micBuffer.AddSamples(a.Buffer, 0, a.BytesRecorded);
-            microphone.StartRecording();
+            try { ws.Abort(); } catch { }
+            ws.Dispose();
+            throw;
         }
-
-        sessionCts = new CancellationTokenSource();
-
-        await SendJsonAsync("{\"type\":\"start\",\"mimeType\":\"audio/pcm;rate=44100;channels=2\",\"codec\":\"pcm\",\"pcmSampleRate\":44100,\"pcmChannels\":2}");
-
-        running = true;
-        LiveButton.Content = "STOP LIVE";
-        StatusText.Text = "LIVE · clean WASAPI capture → USALB server → adaptive MP3";
-
-        sendTask = Task.Run(() => SendMixedAudioAsync(sessionCts.Token));
     }
 
     async Task SendMixedAudioAsync(CancellationToken token)
@@ -126,7 +174,9 @@ public partial class MainWindow : Window
 
         try
         {
-            while (running && socket?.State == WebSocketState.Open && !token.IsCancellationRequested)
+            while (running &&
+                   socket?.State == WebSocketState.Open &&
+                   !token.IsCancellationRequested)
             {
                 Array.Clear(music);
                 Array.Clear(mic);
@@ -149,88 +199,131 @@ public partial class MainWindow : Window
                 packet[3] = 0x31;
                 Buffer.BlockCopy(output, 0, packet, 4, output.Length);
 
-                await socket.SendAsync(packet, WebSocketMessageType.Binary, true, token);
+                await socket.SendAsync(
+                    packet,
+                    WebSocketMessageType.Binary,
+                    true,
+                    token);
+
                 await Task.Delay(FrameMs, token);
             }
         }
         catch (OperationCanceledException)
         {
         }
+        catch (ObjectDisposedException)
+        {
+        }
         catch (Exception ex)
         {
             await Dispatcher.InvokeAsync(() =>
             {
-                if (running)
+                if (running && !IsClosing)
                     StatusText.Text = "Broadcast error: " + ex.Message;
             });
         }
     }
 
-    async Task SendJsonAsync(string json)
+    async Task SendJsonAsync(string json, CancellationToken token)
     {
-        if (socket?.State != WebSocketState.Open)
+        var ws = socket;
+        if (ws?.State != WebSocketState.Open)
             return;
 
         var bytes = Encoding.UTF8.GetBytes(json);
-        await socket.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
+        await ws.SendAsync(bytes, WebSocketMessageType.Text, true, token);
     }
 
     async Task StopAsync()
     {
-        running = false;
-        sessionCts?.Cancel();
+        if (Interlocked.Exchange(ref stopping, 1) != 0)
+            return;
 
         try
         {
-            if (socket?.State == WebSocketState.Open)
-                await SendJsonAsync("{\"type\":\"stop\"}");
-        }
-        catch
-        {
-        }
+            // Stop producing data immediately.
+            running = false;
 
-        try { loopback?.StopRecording(); } catch { }
-        try { microphone?.StopRecording(); } catch { }
+            var cts = sessionCts;
+            cts?.Cancel();
 
-        try
-        {
-            if (sendTask is not null)
-                await sendTask;
-        }
-        catch
-        {
-        }
-
-        loopback?.Dispose();
-        microphone?.Dispose();
-        musicResampler?.Dispose();
-        micResampler?.Dispose();
-        sessionCts?.Dispose();
-
-        loopback = null;
-        microphone = null;
-        musicResampler = null;
-        micResampler = null;
-        musicBuffer = null;
-        micBuffer = null;
-        musicSamples = null;
-        micSamples = null;
-        sessionCts = null;
-        sendTask = null;
-
-        if (socket is not null)
-        {
-            try { socket.Abort(); } catch { }
-            try { socket.Dispose(); } catch { }
+            // Abort the socket BEFORE waiting for the send task. This is
+            // critical: a blocked network write must never keep the app alive.
+            var ws = socket;
             socket = null;
-        }
+            try { ws?.Abort(); } catch { }
 
-        LiveButton.Content = "GO LIVE";
-        StatusText.Text = "Ready";
+            try { loopback?.StopRecording(); } catch { }
+            try { microphone?.StopRecording(); } catch { }
+
+            var task = sendTask;
+            sendTask = null;
+
+            if (task is not null)
+            {
+                try
+                {
+                    await Task.WhenAny(task, Task.Delay(1500));
+                }
+                catch
+                {
+                }
+            }
+
+            try
+            {
+                loopback?.Dispose();
+                microphone?.Dispose();
+                musicResampler?.Dispose();
+                micResampler?.Dispose();
+            }
+            catch
+            {
+            }
+
+            try { ws?.Dispose(); } catch { }
+            try { cts?.Dispose(); } catch { }
+
+            loopback = null;
+            microphone = null;
+            musicResampler = null;
+            micResampler = null;
+            musicBuffer = null;
+            micBuffer = null;
+            musicSamples = null;
+            micSamples = null;
+            sessionCts = null;
+
+            if (IsLoaded && !IsClosing)
+            {
+                LiveButton.Content = "GO LIVE";
+                StatusText.Text = "Ready";
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref stopping, 0);
+        }
+    }
+
+    bool IsClosing { get; set; }
+
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        IsClosing = true;
+
+        // Synchronously cancel/abort the network side first. The async
+        // cleanup below is bounded and can no longer hold the socket open.
+        running = false;
+        try { sessionCts?.Cancel(); } catch { }
+        try { socket?.Abort(); } catch { }
+
+        base.OnClosing(e);
     }
 
     protected override async void OnClosed(EventArgs e)
     {
+        IsClosing = true;
         await StopAsync();
         base.OnClosed(e);
     }
