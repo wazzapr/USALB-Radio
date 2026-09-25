@@ -134,7 +134,7 @@ public partial class MainWindow : Window
         var output = new byte[frameSamples * 2];
         var music = new float[frameSamples];
         var mic = new float[frameSamples];
-        BiQuadFilter? musicEqL = null, musicEqR = null, micEqL = null, micEqR = null;
+        BiQuadFilter[]? musicEqL = null, musicEqR = null, micEqL = null, micEqR = null;
         float lastBass = float.NaN, lastMid = float.NaN, lastTreble = float.NaN;
         try
         {
@@ -152,10 +152,10 @@ public partial class MainWindow : Window
 
                 if (musicEqL is null || bass != lastBass || mid != lastMid || treble != lastTreble)
                 {
-                    musicEqL = BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass);
-                    musicEqR = BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass);
-                    micEqL = BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass);
-                    micEqR = BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass);
+                    musicEqL = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7, treble)];
+                    musicEqR = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7, treble)];
+                    micEqL = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7, treble)];
+                    micEqR = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7, treble)];
                     lastBass = bass;
                     lastMid = mid;
                     lastTreble = treble;
@@ -163,10 +163,10 @@ public partial class MainWindow : Window
 
                 for (var i = 0; i < frameSamples; i += 2)
                 {
-                    var ml = musicEqL?.Transform(music[i]) ?? music[i];
-                    var mr = musicEqR?.Transform(music[i + 1]) ?? music[i + 1];
-                    var il = micEqL?.Transform(mic[i]) ?? mic[i];
-                    var ir = micEqR?.Transform(mic[i + 1]) ?? mic[i + 1];
+                    var ml = ApplyEq(musicEqL, music[i]);
+                    var mr = ApplyEq(musicEqR, music[i + 1]);
+                    var il = ApplyEq(micEqL, mic[i]);
+                    var ir = ApplyEq(micEqR, mic[i + 1]);
 
                     var left = (float)((ml * currentMusicGain) + (il * currentMicGain)) * (float)currentMasterGain;
                     var right = (float)((mr * currentMusicGain) + (ir * currentMicGain)) * (float)currentMasterGain;
@@ -200,6 +200,14 @@ public partial class MainWindow : Window
         {
             if (!IsClosing) await Dispatcher.InvokeAsync(() => { if (running) StatusText.Text = "Broadcast error: " + ex.Message; });
         }
+    }
+
+    static float ApplyEq(BiQuadFilter[]? filters, float sample)
+    {
+        if (filters is null) return sample;
+        var value = sample;
+        foreach (var filter in filters) value = filter.Transform(value);
+        return value;
     }
 
     async Task SendJsonAsync(string json, CancellationToken token)
