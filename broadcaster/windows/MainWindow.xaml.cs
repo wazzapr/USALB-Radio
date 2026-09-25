@@ -152,7 +152,7 @@ public partial class MainWindow : Window
 
                 if (musicEqL is null || bass != lastBass || mid != lastMid || treble != lastTreble)
                 {
-                    musicEqL = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7, treble)];
+                    musicEqL = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, treble)];
                     musicEqR = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7, treble)];
                     micEqL = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7, treble)];
                     micEqR = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7, treble)];
