@@ -1,5 +1,4 @@
 name: Build USALB Broadcaster
-# Trigger verified Windows artifact build
 
 on:
   push:
@@ -32,8 +31,8 @@ jobs:
       - name: Restore
         run: dotnet restore USALBBroadcaster.csproj
 
-      - name: Publish broadcaster
-        run: dotnet publish USALBBroadcaster.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+      - name: Publish self-contained Windows app
+        run: dotnet publish USALBBroadcaster.csproj -c Release -r win-x64 --self-contained true -o publish
 
       - name: Download FFmpeg
         shell: powershell
@@ -43,17 +42,34 @@ jobs:
           $exe = Get-ChildItem "$env:RUNNER_TEMP\ffmpeg" -Recurse -Filter ffmpeg.exe | Select-Object -First 1
           Copy-Item $exe.FullName "publish\ffmpeg.exe"
 
-      - name: Create portable package
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Windows installer
         shell: powershell
         run: |
-          Set-Content -Path "publish\README.txt" -Value "USALB Broadcaster. Run USALBBroadcaster.exe."
-          Compress-Archive -Path "publish\*" -DestinationPath "$env:GITHUB_WORKSPACE\USALB-Broadcaster-Windows.zip" -Force
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 
-      - name: Upload Windows artifact
+      - name: Create portable ZIP
+        shell: powershell
+        run: |
+          Set-Content -Path "publish\README.txt" -Value "USALB Broadcaster. Run USALB.Broadcaster.exe."
+          Compress-Archive -Path "publish\*" -DestinationPath "$env:GITHUB_WORKSPACE\USALB-Broadcaster-Portable.zip" -Force
+
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: USALB-Broadcaster-win-x64
-          path: USALB-Broadcaster-Windows.zip
+          name: USALB-Broadcaster-Setup
+          path: installer-output/USALB-Broadcaster-Setup.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: USALB-Broadcaster-Portable
+          path: USALB-Broadcaster-Portable.zip
           if-no-files-found: error
           retention-days: 14
 
@@ -63,9 +79,11 @@ jobs:
           tag_name: broadcaster-latest
           name: USALB Broadcaster Latest
           body: |
-            Latest Windows build of USALB Broadcaster.
-            Download the ZIP, extract it, and run USALBBroadcaster.exe.
-          files: USALB-Broadcaster-Windows.zip
+            Windows installer and portable build of USALB Broadcaster.
+            Recommended: run USALB-Broadcaster-Setup.exe.
+          files: |
+            installer-output/USALB-Broadcaster-Setup.exe
+            USALB-Broadcaster-Portable.zip
           make_latest: true
           prerelease: false
           fail_on_unmatched_files: true
