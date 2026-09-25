@@ -25,6 +25,8 @@ public partial class MainWindow : Window
     CancellationTokenSource? sessionCts;
     Task? sendTask;
     volatile bool running;
+    volatile double musicGain = 1.0;
+    volatile double micGain = 1.0;
     int stopping;
     bool IsClosing { get; set; }
 
@@ -33,6 +35,8 @@ public partial class MainWindow : Window
         InitializeComponent();
         monitorTimer.Tick += async (_, _) => await RefreshMonitorAsync();
         Loaded += async (_, _) => await RefreshMonitorAsync();
+        MusicVolume.ValueChanged += (_, _) => musicGain = MusicVolume.Value / 100.0;
+        MicVolume.ValueChanged += (_, _) => micGain = MicVolume.Value / 100.0;
         Closed += (_, _) => http.Dispose();
     }
 
@@ -124,11 +128,11 @@ public partial class MainWindow : Window
                 Array.Clear(music); Array.Clear(mic);
                 musicSamples?.Read(music, 0, music.Length);
                 micSamples?.Read(mic, 0, mic.Length);
-                var musicGain = MusicVolume.Value / 100.0;
-                var micGain = MicVolume.Value / 100.0;
+                var currentMusicGain = musicGain;
+                var currentMicGain = micGain;
                 for (var i = 0; i < frameSamples; i++)
                 {
-                    var sample = Math.Clamp((music[i] * musicGain) + (mic[i] * micGain), -0.98f, 0.98f);
+                    var sample = Math.Clamp((music[i] * currentMusicGain) + (mic[i] * currentMicGain), -0.98f, 0.98f);
                     var s = (short)Math.Round(sample * short.MaxValue);
                     output[i * 2] = (byte)(s & 255); output[i * 2 + 1] = (byte)(s >> 8);
                 }
