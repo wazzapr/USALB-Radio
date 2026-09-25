@@ -37,8 +37,11 @@ app.use(express.urlencoded({ extended: true }));
 // router so /api/radio-stream is handled by the same relay that receives
 // /api/live/ws audio.
 app.use((req, res, next) => {
-  if (handleLiquidsoapStreamRequest(req, res)) return;
+  // Keep the proven live relay as the primary public path. Liquidsoap remains
+  // connected to the same broadcast feed and is available as the radio engine
+  // without breaking the broadcaster/player connection.
   if (handleLiveStreamRequest(req, res)) return;
+  if (handleLiquidsoapStreamRequest(req, res)) return;
   next();
 });
 
