@@ -1,3 +1,4 @@
+using System.Net.Http;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -25,8 +26,8 @@ public partial class MainWindow : Window
     CancellationTokenSource? sessionCts;
     Task? sendTask;
     volatile bool running;
-    volatile double musicGain = 1.0;
-    volatile double micGain = 1.0;
+    volatile int musicGainPercent = 100;
+    volatile int micGainPercent = 100;
     int stopping;
     bool IsClosing { get; set; }
 
@@ -35,8 +36,8 @@ public partial class MainWindow : Window
         InitializeComponent();
         monitorTimer.Tick += async (_, _) => await RefreshMonitorAsync();
         Loaded += async (_, _) => await RefreshMonitorAsync();
-        MusicVolume.ValueChanged += (_, _) => musicGain = MusicVolume.Value / 100.0;
-        MicVolume.ValueChanged += (_, _) => micGain = MicVolume.Value / 100.0;
+        MusicVolume.ValueChanged += (_, _) => musicGainPercent = (int)Math.Round(MusicVolume.Value);
+        MicVolume.ValueChanged += (_, _) => micGainPercent = (int)Math.Round(MicVolume.Value);
         Closed += (_, _) => http.Dispose();
     }
 
@@ -128,8 +129,8 @@ public partial class MainWindow : Window
                 Array.Clear(music); Array.Clear(mic);
                 musicSamples?.Read(music, 0, music.Length);
                 micSamples?.Read(mic, 0, mic.Length);
-                var currentMusicGain = musicGain;
-                var currentMicGain = micGain;
+                var currentMusicGain = musicGainPercent / 100.0;
+                var currentMicGain = micGainPercent / 100.0;
                 for (var i = 0; i < frameSamples; i++)
                 {
                     var sample = Math.Clamp((music[i] * currentMusicGain) + (mic[i] * currentMicGain), -0.98f, 0.98f);
