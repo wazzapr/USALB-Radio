@@ -20,8 +20,8 @@ output.harbor(
   mount="/stream",
   port=8006,
   format="audio/mpeg",
-  buffer=1310700,
-  burst=65535,
+  buffer=262140,
+  burst=16384,
   %mp3(bitrate=320, samplerate=44100, stereo=true, internal_quality=2),
   radio
 )
