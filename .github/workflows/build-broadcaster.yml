@@ -61,7 +61,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: USALB-Broadcaster-Setup
-          path: installer-output/USALB-Broadcaster-Setup.exe
+          path: broadcaster/windows/installer-output/USALB-Broadcaster-Setup.exe
           if-no-files-found: error
           retention-days: 14
 
@@ -82,7 +82,7 @@ jobs:
             Windows installer and portable build of USALB Broadcaster.
             Recommended: run USALB-Broadcaster-Setup.exe.
           files: |
-            installer-output/USALB-Broadcaster-Setup.exe
+            broadcaster/windows/installer-output/USALB-Broadcaster-Setup.exe
             USALB-Broadcaster-Portable.zip
           make_latest: true
           prerelease: false
