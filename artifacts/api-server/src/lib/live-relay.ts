@@ -21,7 +21,7 @@ function connectLiquidsoapFeed(): void {
   const auth = Buffer.from(`source:${liquidsoapPassword()}`).toString("base64");
   const request = httpRequest({
     host: "127.0.0.1", port: 8005, path: "/live", method: "PUT",
-    headers: { "Content-Type": "audio/mpeg", "Authorization": `Basic ${auth}`, "Connection": "keep-alive` },
+    headers: { "Content-Type": "audio/mpeg", "Authorization": `Basic ${auth}`, "Connection": "keep-alive" },
   });
   liquidsoapFeed = request;
   request.on("error", (error) => {
