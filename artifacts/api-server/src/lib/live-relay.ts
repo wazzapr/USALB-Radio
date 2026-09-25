@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { request as httpRequest, type ClientRequest } from "node:http";
-import { liquidsoapPassword, liquidsoapRunning } from "./liquidsoap";
+import { liquidsoapListenerCount, liquidsoapPassword, liquidsoapRunning } from "./liquidsoap";
 
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
@@ -301,7 +301,7 @@ export function getLiveSnapshot() {
   return {
     streaming: live && lastAudioAt !== null,
     connected: broadcaster !== null,
-    listenerCount: listeners.size,
+    listenerCount: liquidsoapListenerCount(),
     contentType: live ? "audio/mpeg" : null,
     bitrateKbps: live ? 320 : null,
     qualities: live ? [320] : [],
