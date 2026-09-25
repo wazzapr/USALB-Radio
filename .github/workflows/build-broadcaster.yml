@@ -34,14 +34,6 @@ jobs:
       - name: Publish self-contained Windows app
         run: dotnet publish USALBBroadcaster.csproj -c Release -r win-x64 --self-contained true -o publish
 
-      - name: Download FFmpeg
-        shell: powershell
-        run: |
-          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "$env:RUNNER_TEMP\ffmpeg.zip"
-          Expand-Archive "$env:RUNNER_TEMP\ffmpeg.zip" "$env:RUNNER_TEMP\ffmpeg"
-          $exe = Get-ChildItem "$env:RUNNER_TEMP\ffmpeg" -Recurse -Filter ffmpeg.exe | Select-Object -First 1
-          Copy-Item $exe.FullName "publish\ffmpeg.exe"
-
       - name: Install Inno Setup
         shell: powershell
         run: choco install innosetup --no-progress -y
