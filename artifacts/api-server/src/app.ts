@@ -5,7 +5,6 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { handleLiveStreamRequest } from "./lib/live-relay";
-import { handleLiquidsoapStreamRequest } from "./lib/liquidsoap";
 
 const app: Express = express();
 
