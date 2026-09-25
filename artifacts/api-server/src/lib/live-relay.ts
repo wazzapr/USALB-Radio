@@ -1,5 +1,7 @@
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { request as httpRequest, type ClientRequest } from "node:http";
+import { liquidsoapPassword, liquidsoapRunning } from "./liquidsoap";
 
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
@@ -24,6 +26,39 @@ let lastAudioAt: Date | null = null;
 let totalBytes = 0;
 const listeners = new Map<ServerResponse, Quality>();
 const wsListeners = new Set<WebSocket>();
+let liquidsoapFeed: ClientRequest | null = null;
+
+function connectLiquidsoapFeed(): void {
+  if (liquidsoapFeed || !liquidsoapRunning()) return;
+
+  const auth = Buffer.from(`source:${liquidsoapPassword()}`).toString("base64");
+  const request = httpRequest({
+    host: "127.0.0.1",
+    port: 8005,
+    path: "/live",
+    method: "PUT",
+    headers: {
+      "Content-Type": "audio/mpeg",
+      "Authorization": `Basic ${auth}`,
+      "Connection": "keep-alive",
+    },
+  });
+
+  liquidsoapFeed = request;
+  request.on("response", (response) => {
+    if ((response.statusCode ?? 500) >= 400) {
+      console.error(`[USALB Liquidsoap feed] HTTP ${response.statusCode}`);
+      request.destroy();
+    }
+  });
+  request.on("error", (error) => {
+    console.error("[USALB Liquidsoap feed]", error.message);
+    if (liquidsoapFeed === request) liquidsoapFeed = null;
+  });
+  request.on("close", () => {
+    if (liquidsoapFeed === request) liquidsoapFeed = null;
+  });
+}
 
 function sendJson(socket: WebSocket, payload: Record<string, unknown>): void {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
@@ -57,6 +92,10 @@ function spawnEncoder(bitrate: Quality): Encoder {
     lastAudioAt = new Date();
     totalBytes += chunk.length;
     rememberEncoder(encoder, chunk);
+    if (bitrate === 320 && liquidsoapRunning()) connectLiquidsoapFeed();
+    if (bitrate === 320 && liquidsoapFeed) {
+      try { liquidsoapFeed.write(chunk); } catch { liquidsoapFeed = null; }
+    }
     for (const [response, quality] of listeners) {
       if (quality !== bitrate) continue;
       if (response.writableEnded || response.destroyed) { listeners.delete(response); continue; }
@@ -132,6 +171,10 @@ function reset(): void {
   wsListeners.clear();
   for (const encoder of encoders.values()) { try { encoder.process.stdin.end(); } catch {} try { encoder.process.kill("SIGTERM"); } catch {} }
   encoders.clear();
+  if (liquidsoapFeed) {
+    try { liquidsoapFeed.end(); } catch {}
+    liquidsoapFeed = null;
+  }
   for (const response of listeners.keys()) { try { response.end(); } catch {} }
   listeners.clear();
 }
