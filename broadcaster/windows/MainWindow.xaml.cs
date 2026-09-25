@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Threading;
 using NAudio.Wave;
+using NAudio.Dsp;
 
 namespace USALB.Broadcaster;
 
@@ -28,6 +29,11 @@ public partial class MainWindow : Window
     volatile bool running;
     volatile int musicGainPercent = 100;
     volatile int micGainPercent = 100;
+    volatile int masterGainPercent = 100;
+    volatile float bassGainDb;
+    volatile float midGainDb;
+    volatile float trebleGainDb;
+    volatile bool limiterEnabled = true;
     int stopping;
     bool IsClosing { get; set; }
 
@@ -38,6 +44,12 @@ public partial class MainWindow : Window
         Loaded += async (_, _) => await RefreshMonitorAsync();
         MusicVolume.ValueChanged += (_, _) => musicGainPercent = (int)Math.Round(MusicVolume.Value);
         MicVolume.ValueChanged += (_, _) => micGainPercent = (int)Math.Round(MicVolume.Value);
+        MasterVolume.ValueChanged += (_, _) => masterGainPercent = (int)Math.Round(MasterVolume.Value);
+        BassGain.ValueChanged += (_, _) => bassGainDb = (float)BassGain.Value;
+        MidGain.ValueChanged += (_, _) => midGainDb = (float)MidGain.Value;
+        TrebleGain.ValueChanged += (_, _) => trebleGainDb = (float)TrebleGain.Value;
+        LimiterBox.Checked += (_, _) => limiterEnabled = true;
+        LimiterBox.Unchecked += (_, _) => limiterEnabled = false;
         Closed += (_, _) => http.Dispose();
     }
 
@@ -122,6 +134,8 @@ public partial class MainWindow : Window
         var output = new byte[frameSamples * 2];
         var music = new float[frameSamples];
         var mic = new float[frameSamples];
+        BiQuadFilter? musicEqL = null, musicEqR = null, micEqL = null, micEqR = null;
+        float lastBass = float.NaN, lastMid = float.NaN, lastTreble = float.NaN;
         try
         {
             while (running && socket?.State == WebSocketState.Open && !token.IsCancellationRequested)
@@ -131,11 +145,47 @@ public partial class MainWindow : Window
                 micSamples?.Read(mic, 0, mic.Length);
                 var currentMusicGain = musicGainPercent / 100.0;
                 var currentMicGain = micGainPercent / 100.0;
-                for (var i = 0; i < frameSamples; i++)
+                var currentMasterGain = masterGainPercent / 100.0;
+                var bass = bassGainDb;
+                var mid = midGainDb;
+                var treble = trebleGainDb;
+
+                if (musicEqL is null || bass != lastBass || mid != lastMid || treble != lastTreble)
                 {
-                    var sample = Math.Clamp((music[i] * currentMusicGain) + (mic[i] * currentMicGain), -0.98f, 0.98f);
-                    var s = (short)Math.Round(sample * short.MaxValue);
-                    output[i * 2] = (byte)(s & 255); output[i * 2 + 1] = (byte)(s >> 8);
+                    musicEqL = BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass);
+                    musicEqR = BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass);
+                    micEqL = BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass);
+                    micEqR = BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7, bass);
+                    lastBass = bass;
+                    lastMid = mid;
+                    lastTreble = treble;
+                }
+
+                for (var i = 0; i < frameSamples; i += 2)
+                {
+                    var ml = musicEqL?.Transform(music[i]) ?? music[i];
+                    var mr = musicEqR?.Transform(music[i + 1]) ?? music[i + 1];
+                    var il = micEqL?.Transform(mic[i]) ?? mic[i];
+                    var ir = micEqR?.Transform(mic[i + 1]) ?? mic[i + 1];
+
+                    var left = (float)((ml * currentMusicGain) + (il * currentMicGain)) * (float)currentMasterGain;
+                    var right = (float)((mr * currentMusicGain) + (ir * currentMicGain)) * (float)currentMasterGain;
+
+                    if (limiterEnabled)
+                    {
+                        left = Math.Clamp(left, -0.98f, 0.98f);
+                        right = Math.Clamp(right, -0.98f, 0.98f);
+                    }
+                    else
+                    {
+                        left = Math.Clamp(left, -1f, 1f);
+                        right = Math.Clamp(right, -1f, 1f);
+                    }
+
+                    var sl = (short)Math.Round(left * short.MaxValue);
+                    var sr = (short)Math.Round(right * short.MaxValue);
+                    output[i * 2] = (byte)(sl & 255); output[i * 2 + 1] = (byte)(sl >> 8);
+                    output[(i + 1) * 2] = (byte)(sr & 255); output[(i + 1) * 2 + 1] = (byte)(sr >> 8);
                 }
                 var packet = new byte[4 + output.Length];
                 packet[0] = 0x50; packet[1] = 0x43; packet[2] = 0x4d; packet[3] = 0x31;
