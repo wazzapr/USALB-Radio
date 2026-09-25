@@ -1,5 +1,7 @@
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { request as httpRequest, type ClientRequest } from "node:http";
+import { liquidsoapPassword, liquidsoapRunning } from "./liquidsoap";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 const LIVE_SOCKET_PATH = "/api/live/ws";
@@ -12,6 +14,22 @@ const QUALITY_PATHS = new Map<string, 320 | 192 | 128 | 64>([
 type Quality = 320 | 192 | 128 | 64;
 type Encoder = { bitrate: Quality; process: ChildProcessWithoutNullStreams; recentChunks: Buffer[]; recentBytes: number };
 const encoders = new Map<Quality, Encoder>();
+let liquidsoapFeed: ClientRequest | null = null;
+
+function connectLiquidsoapFeed(): void {
+  if (liquidsoapFeed || !liquidsoapRunning()) return;
+  const auth = Buffer.from(`source:${liquidsoapPassword()}`).toString("base64");
+  const request = httpRequest({
+    host: "127.0.0.1", port: 8005, path: "/live", method: "PUT",
+    headers: { "Content-Type": "audio/mpeg", "Authorization": `Basic ${auth}`, "Connection": "keep-alive` },
+  });
+  liquidsoapFeed = request;
+  request.on("error", (error) => {
+    console.error("[USALB Liquidsoap feed]", error.message);
+    if (liquidsoapFeed === request) liquidsoapFeed = null;
+  });
+  request.on("close", () => { if (liquidsoapFeed === request) liquidsoapFeed = null; });
+}
 
 let broadcaster: WebSocket | null = null;
 let live = false;
@@ -56,6 +74,10 @@ function spawnEncoder(bitrate: Quality): Encoder {
     lastAudioAt = new Date();
     totalBytes += chunk.length;
     rememberEncoder(encoder, chunk);
+    if (bitrate === 320 && liquidsoapRunning()) connectLiquidsoapFeed();
+    if (bitrate === 320 && liquidsoapFeed) {
+      try { liquidsoapFeed.write(chunk); } catch { liquidsoapFeed = null; }
+    }
     for (const [response, quality] of listeners) {
       if (quality !== bitrate) continue;
       if (response.writableEnded || response.destroyed) { listeners.delete(response); continue; }
