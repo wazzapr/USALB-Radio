@@ -3,7 +3,7 @@ settings.harbor.bind_addrs := ["127.0.0.1"]
 settings.harbor.timeout := 120.0
 settings.harbor.reverse_dns := false
 
-source_password = environment.getenv("USALB_LIQUIDSOAP_SOURCE_PASSWORD", default="usalb-internal-source")
+source_password = environment.get(default="usalb-internal-source", "USALB_LIQUIDSOAP_SOURCE_PASSWORD")
 
 live = input.harbor(
   "live",
