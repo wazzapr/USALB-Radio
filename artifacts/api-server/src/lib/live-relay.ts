@@ -7,8 +7,7 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 const LIVE_SOCKET_PATH = "/api/live/ws";
 const PCM_MAGIC = Buffer.from([0x50, 0x43, 0x4d, 0x31]);
-// Keep only a short startup cushion. A large replay buffer makes a listener hear old audio and feel delayed.
-const MAX_RECENT_BYTES = 32 * 1024;
+// Do not replay old audio when a listener connects or reconnects. Replaying even ~1 second\n// of MP3 can make the listener hear the same music twice or jump backward after reconnects.\nconst MAX_RECENT_BYTES = 0;
 const QUALITY_PATHS = new Map<string, 320>([
   ["/api/live/stream", 320],
   ["/api/radio-stream", 320],
@@ -73,6 +72,7 @@ function rawBuffer(data: RawData): Buffer {
 }
 
 function rememberEncoder(encoder: Encoder, chunk: Buffer): void {
+  if (MAX_RECENT_BYTES <= 0) return;
   encoder.recentChunks.push(Buffer.from(chunk));
   encoder.recentBytes += chunk.length;
   while (encoder.recentBytes > MAX_RECENT_BYTES && encoder.recentChunks.length > 1) {
@@ -342,10 +342,6 @@ export function handleLiveStreamRequest(req: IncomingMessage, res: ServerRespons
   res.flushHeaders?.();
 
   listeners.set(res, selectedQuality);
-
-  for (const chunk of encoder.recentChunks) {
-    if (!res.writableEnded) res.write(chunk);
-  }
 
   const cleanup = () => listeners.delete(res);
   req.once("close", cleanup);
