@@ -5,7 +5,7 @@ import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
 import { addListener } from "./lib/radio-state";
 import { createServer } from "node:http";
-import { attachLiveRelay } from "./lib/live-relay";
+import { attachLiveRelay, handleLiveIngestRequest } from "./lib/live-relay";
 import { ensureLiquidsoap } from "./lib/liquidsoap";
 
 const rawPort = process.env["PORT"];
@@ -22,7 +22,10 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-const server = createServer(app);
+const server = createServer((req, res) => {
+  if (handleLiveIngestRequest(req, res)) return;
+  app(req, res);
+});
 
 // The broadcaster uses one long-lived HTTP POST for live audio. Node 24's
 // default requestTimeout is 5 minutes, which would silently kill a healthy
