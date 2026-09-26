@@ -78,6 +78,7 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
   const pendingBytesRef = useRef(0);
   const appendBusyRef = useRef(false);
   const initialBufferReadyRef = useRef(false);
+  const initialBytesRemainingRef = useRef(0);
   const [playing, setPlaying] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [volume, setVolume] = useState(0.78);
@@ -105,6 +106,7 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
     pendingBytesRef.current = 0;
     appendBusyRef.current = false;
     initialBufferReadyRef.current = false;
+    initialBytesRemainingRef.current = 0;
 
     if (mediaObjectUrlRef.current) {
       URL.revokeObjectURL(mediaObjectUrlRef.current);
@@ -174,15 +176,23 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
     const next = pendingChunksRef.current.shift();
     if (!next) return;
     appendBusyRef.current = true;
+    pendingBytesRef.current = Math.max(0, pendingBytesRef.current - next.byteLength);
+    if (initialBufferReadyRef.current) initialBytesRemainingRef.current = Math.max(0, initialBytesRemainingRef.current - next.byteLength);
     try {
       sourceBuffer.appendBuffer(next);
     } catch {
       appendBusyRef.current = false;
       pendingChunksRef.current.unshift(next);
+      pendingBytesRef.current += next.byteLength;
+      if (initialBufferReadyRef.current) initialBytesRemainingRef.current += next.byteLength;
       return;
     }
     sourceBuffer.addEventListener('updateend', () => {
       appendBusyRef.current = false;
+      if (initialBufferReadyRef.current && initialBytesRemainingRef.current === 0 && wantedToPlayRef.current) {
+        const audio = audioRef.current;
+        if (audio && audio.paused) void audio.play().catch(() => {});
+      }
       pumpSourceBuffer();
     }, { once: true });
   };
@@ -271,13 +281,10 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
 
         if (!initialBufferReadyRef.current && pendingBytesRef.current >= TARGET_BUFFER_BYTES) {
           initialBufferReadyRef.current = true;
+          initialBytesRemainingRef.current = pendingBytesRef.current;
         }
 
         pumpSourceBuffer();
-
-        if (initialBufferReadyRef.current && !playing && !audio.paused && audio.readyState >= 2) {
-          await audio.play().catch(() => {});
-        }
       }
 
       if (wantedToPlayRef.current) throw new Error('Live stream ended');
