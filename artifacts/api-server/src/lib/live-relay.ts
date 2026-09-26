@@ -27,6 +27,8 @@ let totalBytes = 0;
 const listeners = new Map<ServerResponse, Quality>();
 const wsListeners = new Set<WebSocket>();
 let liquidsoapFeed: ClientRequest | null = null;
+let broadcasterDisconnectTimer: NodeJS.Timeout | null = null;
+const BROADCASTER_RECONNECT_GRACE_MS = 60_000;
 
 function connectLiquidsoapFeed(): void {
   if (liquidsoapFeed || !liquidsoapRunning()) return;
@@ -160,7 +162,15 @@ function announceWsStatus(): void {
   }
 }
 
+function cancelBroadcasterDisconnectGrace(): void {
+  if (broadcasterDisconnectTimer) {
+    clearTimeout(broadcasterDisconnectTimer);
+    broadcasterDisconnectTimer = null;
+  }
+}
+
 function reset(): void {
+  cancelBroadcasterDisconnectGrace();
   broadcaster = null;
   live = false;
   broadcastMode = null;
@@ -227,6 +237,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
     try { broadcaster.close(1012, "Replaced by a new broadcaster"); } catch {}
   }
 
+  cancelBroadcasterDisconnectGrace();
   broadcaster = socket;
   live = false;
   broadcastMode = null;
@@ -293,8 +304,26 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
     }
   });
 
-  socket.once("close", () => { if (broadcaster === socket) reset(); });
-  socket.once("error", () => { if (broadcaster === socket) reset(); });
+  socket.once("close", () => {
+    if (broadcaster !== socket) return;
+    broadcaster = null;
+    // Do not take the radio offline for a transient network/proxy drop.
+    // Keep the encoder and listener connections alive for up to 60 seconds
+    // so the broadcaster can reconnect without interrupting the station.
+    if (live) {
+      cancelBroadcasterDisconnectGrace();
+      broadcasterDisconnectTimer = setTimeout(() => {
+        broadcasterDisconnectTimer = null;
+        if (!broadcaster) reset();
+      }, BROADCASTER_RECONNECT_GRACE_MS);
+    } else {
+      reset();
+    }
+  });
+  socket.once("error", () => {
+    if (broadcaster !== socket) return;
+    try { socket.close(); } catch {}
+  });
 }
 
 export function getLiveSnapshot() {
