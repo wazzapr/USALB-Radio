@@ -115,6 +115,7 @@ public partial class MainWindow : Window
             }
 
             await SendJsonAsync("{\"type\":\"start\",\"mimeType\":\"audio/pcm;rate=44100;channels=2\",\"codec\":\"pcm\",\"pcmSampleRate\":44100,\"pcmChannels\":2}", token);
+            await WaitForReadyAsync(ws, token);
             running = true;
             LiveButton.Content = "STOP LIVE";
             LiveStateText.Text = "LIVE";
@@ -194,7 +195,19 @@ public partial class MainWindow : Window
                 packet[0] = 0x50; packet[1] = 0x43; packet[2] = 0x4d; packet[3] = 0x31;
                 Buffer.BlockCopy(output, 0, packet, 4, output.Length);
                 await socket.SendAsync(packet, WebSocketMessageType.Binary, true, token);
-                await Task.Delay(FrameMs, token);
+                var now = Stopwatch.GetTimestamp();
+                var remaining = nextFrameAt - now;
+                if (remaining > 0)
+                {
+                    var delayMs = (int)(remaining * 1000 / Stopwatch.Frequency);
+                    if (delayMs > 0) await Task.Delay(delayMs, token);
+                    while (Stopwatch.GetTimestamp() < nextFrameAt && !token.IsCancellationRequested) Thread.SpinWait(100);
+                }
+                else if (remaining < -(long)(Stopwatch.Frequency * 0.5))
+                {
+                    nextFrameAt = Stopwatch.GetTimestamp();
+                }
+                nextFrameAt += (long)(Stopwatch.Frequency * (FrameMs / 1000.0));
             }
         }
         catch (OperationCanceledException) { }
