@@ -79,6 +79,9 @@ export function useLiveBroadcaster() {
   const previewGraphRef = useRef<PreviewGraph | null>(null);
   const displayStreamRef = useRef<MediaStream | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const mp3SendQueueRef = useRef<Uint8Array[]>([]);
+  const mp3SendTimerRef = useRef<number | null>(null);
+  const mp3NextSendAtRef = useRef(0);
   const musicUrlRef = useRef<string | null>(null);
   const effectBuffersRef = useRef(new Map<string, AudioBuffer>());
   const duckFrameRef = useRef<number | null>(null);
@@ -197,6 +200,12 @@ export function useLiveBroadcaster() {
 
   const cleanupGraph = useCallback(async () => {
     stopMeter();
+    if (mp3SendTimerRef.current !== null) {
+      window.clearTimeout(mp3SendTimerRef.current);
+      mp3SendTimerRef.current = null;
+    }
+    mp3SendQueueRef.current = [];
+    mp3NextSendAtRef.current = 0;
     const graph = graphRef.current;
     graphRef.current = null;
     if (!graph) return;
@@ -476,7 +485,7 @@ export function useLiveBroadcaster() {
       const voiceGain = context.createGain();
       const musicAnalyser = context.createAnalyser();
       const voiceAnalyser = context.createAnalyser();
-      const mp3Processor = typeof context.createScriptProcessor === "function" ? context.createScriptProcessor(4096, 2, 2) : null;
+      const mp3Processor = typeof context.createScriptProcessor === "function" ? context.createScriptProcessor(2048, 2, 2) : null;
       const mp3Encoder = new lamejs.Mp3Encoder(2, 44100, 320);
       const mp3Silence = mp3Processor ? context.createGain() : null;
       musicAnalyser.fftSize = 256;
@@ -500,11 +509,40 @@ export function useLiveBroadcaster() {
         mp3Processor.connect(mp3Silence);
         mp3Silence.gain.value = 0.00001;
         mp3Silence.connect(context.destination);
+        const scheduleMp3Send = () => {
+          if (mp3SendTimerRef.current !== null) return;
+          const queue = mp3SendQueueRef.current;
+          if (!queue.length) return;
+          const socket = socketRef.current;
+          if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
+          const now = performance.now();
+          if (!mp3NextSendAtRef.current || mp3NextSendAtRef.current < now - 100) {
+            mp3NextSendAtRef.current = now;
+          }
+          const delay = Math.max(0, mp3NextSendAtRef.current - now);
+          mp3SendTimerRef.current = window.setTimeout(() => {
+            mp3SendTimerRef.current = null;
+            const currentSocket = socketRef.current;
+            const currentQueue = mp3SendQueueRef.current;
+            if (!currentSocket || currentSocket.readyState !== WebSocket.OPEN || !currentQueue.length) return;
+
+            currentSocket.send(currentQueue.shift()!);
+            mp3NextSendAtRef.current += (1152 / 44100) * 1000;
+
+            // If the browser was briefly busy, never dump the queued frames in
+            // a burst. Reset the schedule and continue at the real-time frame rate.
+            if (mp3NextSendAtRef.current < performance.now() - 100) {
+              mp3NextSendAtRef.current = performance.now();
+            }
+            scheduleMp3Send();
+          }, delay);
+        };
+
         mp3Processor.onaudioprocess = (event) => {
           const socket = socketRef.current;
           if (!socket || socket.readyState !== WebSocket.OPEN) return;
-          // Keep every encoded MP3 frame. Dropping frames here creates audible
-          // multi-second holes when the WebSocket briefly reports queued bytes.
+
           const input = event.inputBuffer;
           const left = new Int16Array(graph.mp3LeftPending.length + input.length);
           const right = new Int16Array(graph.mp3RightPending.length + input.length);
@@ -513,18 +551,37 @@ export function useLiveBroadcaster() {
           const pendingOffset = graph.mp3LeftPending.length;
           const leftData = input.getChannelData(0);
           const rightData = input.numberOfChannels > 1 ? input.getChannelData(1) : leftData;
+
           for (let frame = 0; frame < input.length; frame += 1) {
             left[pendingOffset + frame] = Math.max(-32768, Math.min(32767, Math.round(Math.max(-1, Math.min(1, leftData[frame])) * 32767)));
             right[pendingOffset + frame] = Math.max(-32768, Math.min(32767, Math.round(Math.max(-1, Math.min(1, rightData[frame])) * 32767)));
           }
+
           const frameSize = 1152;
           const completeLength = left.length - (left.length % frameSize);
+
           for (let offset = 0; offset < completeLength; offset += frameSize) {
-            const mp3 = mp3Encoder.encodeBuffer(left.subarray(offset, offset + frameSize), right.subarray(offset, offset + frameSize));
-            if (mp3.length) socket.send(new Uint8Array(mp3));
+            const mp3 = mp3Encoder.encodeBuffer(
+              left.subarray(offset, offset + frameSize),
+              right.subarray(offset, offset + frameSize),
+            );
+            if (mp3.length) {
+              mp3SendQueueRef.current.push(new Uint8Array(mp3));
+            }
           }
+
           graph.mp3LeftPending = left.slice(completeLength);
           graph.mp3RightPending = right.slice(completeLength);
+
+          // Never drop frames and never send a whole callback's worth in one burst.
+          // A bounded queue detects a genuinely stalled connection instead of
+          // silently creating gaps or allowing unbounded latency.
+          if (mp3SendQueueRef.current.length > 256) {
+            void fail("The live connection cannot keep up with the broadcaster audio rate.");
+            return;
+          }
+
+          scheduleMp3Send();
         };
       }
 
