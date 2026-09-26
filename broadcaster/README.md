@@ -1,88 +1,49 @@
-# USALB Broadcaster for Windows
+# USALB Broadcaster
 
-This is the broadcaster side of the USALB Radio architecture:
+Native Windows broadcaster for USALB Radio.
 
-```text
-Windows system audio -> FFmpeg MP3 encoder -> POST /api/radio-ingest
-                                             -> USALB public /api/radio-stream
-                                             -> phone / desktop listeners
-```
+## Current architecture
 
-USALB is the streaming server. No Listen2MyRadio account or external radio
-provider is required.
+Windows system audio / microphone
+        ↓
+USALB Broadcaster (WASAPI + PCM mixer)
+        ↓ one persistent authenticated WebSocket
+USALB server
+        ↓
+Liquidsoap
+        ↓ continuous MP3 stream
+USALB listeners
 
-## One-time server setup
+The broadcaster sends 44.1 kHz, stereo, 16-bit PCM in PCM1 frames. The server feeds that PCM directly into Liquidsoap. Liquidsoap is the single public stream engine and encodes the listener stream to MP3.
 
-Set these Replit environment variables:
+## Connect
 
-- `BROADCASTER_PAIRING_CODE`: the code entered by the broadcaster
-- `PUBLIC_SERVER_URL`: the canonical HTTPS URL shown by the Control Room
-- `PUBLIC_RADIO_STREAM_URL`: normally `/api/radio-stream`
-The pairing code is only used to exchange credentials. Pairing does not test
-audio and does not require the broadcaster to be streaming.
+1. Open the USALB Control Room.
+2. Pair the Windows broadcaster using the server pairing code.
+3. Copy the private broadcaster/stream password returned by pairing.
+4. Open USALB Broadcaster on Windows.
+5. Enter the USALB server URL and paste the private broadcaster key.
+6. Select system audio and/or microphone.
+7. Press GO LIVE.
+8. The broadcaster waits for the server's live confirmation before showing LIVE.
 
-## Install on Windows
+## Audio
 
-1. Install FFmpeg and make sure `ffmpeg.exe` is on PATH.
-2. Run `ffmpeg -devices` and confirm the Windows audio capture device is
-   available.
-3. Use Windows audio loopback/system audio as the source. Do not choose a
-   microphone. Depending on the FFmpeg build, this is usually the WASAPI
-   `default` loopback device or a device exposed by VoiceMeeter / Stereo Mix.
-4. Download `USALB-Broadcaster-Windows.zip` from the Control Room and extract it.
-5. Double-click `install-usabl-broadcaster.bat`.
+- Windows WASAPI loopback for system audio
+- Optional microphone input
+- 44.1 kHz stereo PCM
+- Music, microphone and master gain
+- 3-band EQ
+- Peak limiter
+- Real-time frame pacing
+- Buffered capture headroom to avoid dropping captured audio
 
-To list WASAPI devices:
+## Build
 
-```powershell
-ffmpeg -hide_banner -list_devices true -f wasapi -i dummy
-```
+The GitHub Actions workflow at .github/workflows/build-broadcaster.yml creates:
 
-## Start
+- Windows installer
+- Portable Windows ZIP
+- GitHub release assets under broadcaster-latest
 
-The installer checks for FFmpeg, optionally installs it with `winget`, asks for
-the pairing code and Windows audio device, and then starts the broadcaster.
-For manual startup, open PowerShell in this folder and run:
-
-```powershell
-.\usalb-broadcaster.ps1 `
-  -ServerUrl "https://usalb-radio--applauncher.replit.app" `
-  -PairingCode "YOUR_PAIRING_CODE" `
-  -AudioDevice "default"
-```
-
-The script:
-
-1. Calls `POST /api/broadcaster/pair`.
-2. Saves the returned device ID and publish token locally.
-3. Sends heartbeat and telemetry requests.
-4. Opens one authenticated, persistent `POST /api/radio-ingest`.
-5. Encodes Windows system audio as MP3, 44.1 kHz, stereo, 128 kbps.
-6. Reconnects the ingest connection if FFmpeg exits.
-
-The pairing response contains the real persistent publish endpoint,
-`/api/radio-ingest`, and the public listener endpoint,
-`/api/radio-stream`. The response is returned even when no audio is present.
-
-## Verify from a phone
-
-Open the station website and press Play. The player uses the public USALB
-relay endpoint, not the broadcaster endpoint. The admin diagnostics should
-show:
-
-- authenticated broadcaster connection
-- audio bytes received
-- public stream available
-- `audio/mpeg` mobile-compatible content
-
-If the broadcaster is connected but no bytes are received, the issue is the
-Windows audio capture device or FFmpeg input, not pairing.
-
-## Security notes
-
-- Keep the pairing code private.
-- Keep the generated `credentials.json` file private. It contains the
-  broadcaster publish token.
-- The publish token grants audio publishing only; it is never sent to browser
-  listeners.
-- The listener endpoint is read-only and does not accept broadcaster tokens.
+The current broadcaster is a native Windows app. It does not depend on a browser tab to capture or publish audio.
