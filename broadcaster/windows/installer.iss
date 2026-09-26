@@ -1,5 +1,5 @@
 #define MyAppName "USALB Broadcaster"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.5"
 #define MyAppPublisher "USALB Radio"
 #define MyAppExeName "USALB.Broadcaster.exe"
 
