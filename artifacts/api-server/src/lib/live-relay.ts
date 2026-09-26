@@ -289,7 +289,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
           if (Number.isFinite(message.pcmChannels) && (message.pcmChannels ?? 0) > 0) {
             pcmChannels = Math.min(2, Math.max(1, Math.round(message.pcmChannels ?? 2)));
           }
-          if (!startEncoders()) {
+          if (!encoders.has(320) && !startEncoders()) {
             sendJson(socket, { type: "error", message: "Server audio encoder is unavailable." });
             reset();
             return;
