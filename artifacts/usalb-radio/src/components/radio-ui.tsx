@@ -70,6 +70,14 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wantedToPlayRef = useRef(false);
   const currentStreamUrlRef = useRef<string | undefined>(undefined);
+  const fetchAbortRef = useRef<AbortController | null>(null);
+  const mediaSourceRef = useRef<MediaSource | null>(null);
+  const mediaObjectUrlRef = useRef<string | null>(null);
+  const sourceBufferRef = useRef<SourceBuffer | null>(null);
+  const pendingChunksRef = useRef<Uint8Array[]>([]);
+  const pendingBytesRef = useRef(0);
+  const appendBusyRef = useRef(false);
+  const initialBufferReadyRef = useRef(false);
   const [playing, setPlaying] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [volume, setVolume] = useState(0.78);
@@ -78,6 +86,10 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
   const state = status?.state ?? 'OFFLINE';
   const unavailable = !streamUrl || state === 'OFFLINE';
 
+  // Deliberately trade live latency for a large playback cushion. At 320 kbps
+  // this is roughly 400 KB of compressed MP3 before playback starts.
+  const TARGET_BUFFER_BYTES = 10 * 320000 / 8;
+
   const clearReconnectTimer = () => {
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
@@ -85,18 +97,28 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
     }
   };
 
+  const cleanupBufferedStream = () => {
+    fetchAbortRef.current?.abort();
+    fetchAbortRef.current = null;
+    sourceBufferRef.current = null;
+    pendingChunksRef.current = [];
+    pendingBytesRef.current = 0;
+    appendBusyRef.current = false;
+    initialBufferReadyRef.current = false;
+
+    if (mediaObjectUrlRef.current) {
+      URL.revokeObjectURL(mediaObjectUrlRef.current);
+      mediaObjectUrlRef.current = null;
+    }
+    mediaSourceRef.current = null;
+  };
+
   const buildFreshUrl = (url: string) => {
     const separator = url.includes('?') ? '&' : '?';
     return `${url}${separator}live=${Date.now()}`;
   };
 
-  const connect = async (url: string) => {
-    if (!url || !wantedToPlayRef.current) return;
-
-    clearReconnectTimer();
-    setAudioError(false);
-    setConnecting(true);
-
+  const connectNative = async (url: string) => {
     const audio = audioRef.current || new Audio();
     audioRef.current = audio;
     currentStreamUrlRef.current = url;
@@ -146,6 +168,141 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
     }
   };
 
+  const pumpSourceBuffer = () => {
+    const sourceBuffer = sourceBufferRef.current;
+    if (!sourceBuffer || sourceBuffer.updating || appendBusyRef.current) return;
+    const next = pendingChunksRef.current.shift();
+    if (!next) return;
+    appendBusyRef.current = true;
+    try {
+      sourceBuffer.appendBuffer(next);
+    } catch {
+      appendBusyRef.current = false;
+      pendingChunksRef.current.unshift(next);
+      return;
+    }
+    sourceBuffer.addEventListener('updateend', () => {
+      appendBusyRef.current = false;
+      pumpSourceBuffer();
+    }, { once: true });
+  };
+
+  const connectBuffered = async (url: string) => {
+    const audio = audioRef.current || new Audio();
+    audioRef.current = audio;
+    currentStreamUrlRef.current = url;
+    cleanupBufferedStream();
+
+    if (!('MediaSource' in window) || !MediaSource.isTypeSupported('audio/mpeg')) {
+      await connectNative(url);
+      return;
+    }
+
+    const mediaSource = new MediaSource();
+    mediaSourceRef.current = mediaSource;
+    const objectUrl = URL.createObjectURL(mediaSource);
+    mediaObjectUrlRef.current = objectUrl;
+    audio.src = objectUrl;
+    audio.preload = 'auto';
+    audio.volume = volume;
+
+    audio.onplaying = () => {
+      setConnecting(false);
+      setPlaying(true);
+      setAudioError(false);
+    };
+    audio.onpause = () => {
+      if (wantedToPlayRef.current) {
+        setPlaying(false);
+        setConnecting(true);
+      } else {
+        setPlaying(false);
+      }
+    };
+    audio.onended = () => {
+      if (wantedToPlayRef.current) {
+        setPlaying(false);
+        setConnecting(true);
+        reconnectTimerRef.current = setTimeout(() => void connect(url), 1500);
+      }
+    };
+    audio.onerror = () => {
+      if (!wantedToPlayRef.current) return;
+      setPlaying(false);
+      setConnecting(true);
+      setAudioError(true);
+      reconnectTimerRef.current = setTimeout(() => void connect(url), 3000);
+    };
+
+    const abort = new AbortController();
+    fetchAbortRef.current = abort;
+
+    try {
+      const response = await fetch(buildFreshUrl(url), {
+        cache: 'no-store',
+        signal: abort.signal,
+        headers: { Accept: 'audio/mpeg' },
+      });
+      if (!response.ok || !response.body) throw new Error('Live stream unavailable');
+
+      await new Promise<void>((resolve, reject) => {
+        mediaSource.addEventListener('sourceopen', () => {
+          try {
+            const sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
+            sourceBuffer.mode = 'sequence';
+            sourceBufferRef.current = sourceBuffer;
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        }, { once: true });
+        mediaSource.addEventListener('error', () => reject(new Error('MediaSource error')), { once: true });
+      });
+
+      const reader = response.body.getReader();
+      while (wantedToPlayRef.current) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value || value.byteLength === 0) continue;
+
+        const copy = new Uint8Array(value);
+        pendingChunksRef.current.push(copy);
+        pendingBytesRef.current += copy.byteLength;
+
+        if (!initialBufferReadyRef.current && pendingBytesRef.current >= TARGET_BUFFER_BYTES) {
+          initialBufferReadyRef.current = true;
+        }
+
+        pumpSourceBuffer();
+
+        if (initialBufferReadyRef.current && !playing && !audio.paused && audio.readyState >= 2) {
+          await audio.play().catch(() => {});
+        }
+      }
+
+      if (wantedToPlayRef.current) throw new Error('Live stream ended');
+    } catch (error) {
+      if (!wantedToPlayRef.current || abort.signal.aborted) return;
+      setPlaying(false);
+      setConnecting(true);
+      setAudioError(true);
+      reconnectTimerRef.current = setTimeout(() => void connect(url), 3000);
+    }
+  };
+
+  const connect = async (url: string) => {
+    if (!url || !wantedToPlayRef.current) return;
+
+    clearReconnectTimer();
+    setAudioError(false);
+    setConnecting(true);
+    setPlaying(false);
+
+    // Chromium-based browsers and modern mobile browsers use a real MSE
+    // playback buffer. The native element remains the compatibility fallback.
+    await connectBuffered(url);
+  };
+
   useEffect(() => {
     if (!audioRef.current) audioRef.current = new Audio();
     audioRef.current.volume = volume;
@@ -153,6 +310,7 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
     return () => {
       wantedToPlayRef.current = false;
       clearReconnectTimer();
+      cleanupBufferedStream();
       audioRef.current?.pause();
       audioRef.current = null;
     };
@@ -162,8 +320,6 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
 
-  // If the server publishes a new stream URL while this page is open,
-  // transparently move the existing listener to the new endpoint.
   useEffect(() => {
     if (!wantedToPlayRef.current || !streamUrl) return;
     if (currentStreamUrlRef.current && currentStreamUrlRef.current !== streamUrl) {
@@ -171,8 +327,6 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
     }
   }, [streamUrl]);
 
-  // Keep trying while the listener wants playback, including after a server
-  // restart/redeploy. Backoff is intentionally short so a republish recovers.
   useEffect(() => {
     if (!wantedToPlayRef.current || !streamUrl || unavailable) return;
     if (!playing && !connecting && !reconnectTimerRef.current) {
@@ -184,6 +338,7 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
     if (wantedToPlayRef.current) {
       wantedToPlayRef.current = false;
       clearReconnectTimer();
+      cleanupBufferedStream();
       audioRef.current?.pause();
       setConnecting(false);
       setPlaying(false);
@@ -204,7 +359,7 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
   const label = audioError && connecting
     ? 'Reconnecting to live stream'
     : connecting
-      ? 'Finding the signal'
+      ? 'Buffering live stream'
       : playing
         ? 'Pause live stream'
         : unavailable
@@ -230,7 +385,7 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">
-              {connecting ? 'Finding the signal' : playing ? 'You are listening' : audioError ? 'Signal interrupted' : 'Ready when you are'}
+              {connecting ? 'Buffering the signal' : playing ? 'You are listening' : audioError ? 'Signal interrupted' : 'Ready when you are'}
             </span>
             {playing && <div className="equalizer flex h-6 items-end gap-1 text-secondary" aria-hidden="true"><span /><span /><span /><span /></div>}
           </div>
