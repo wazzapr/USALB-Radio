@@ -1,4 +1,4 @@
-using System.Net.Http;
+using System.Diagnostics;\nusing System.Net.Http;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -95,7 +95,7 @@ public partial class MainWindow : Window
             if (useSystemAudio)
             {
                 loopback = new WasapiLoopbackCapture();
-                musicBuffer = new BufferedWaveProvider(loopback.WaveFormat) { DiscardOnBufferOverflow = true, ReadFully = true };
+                musicBuffer = new BufferedWaveProvider(loopback.WaveFormat) { BufferDuration = TimeSpan.FromSeconds(4), DiscardOnBufferOverflow = false, ReadFully = true };
                 musicResampler = new MediaFoundationResampler(musicBuffer, new WaveFormat(SampleRate, 16, Channels)) { ResamplerQuality = 60 };
                 musicSamples = musicResampler.ToSampleProvider();
                 loopback.DataAvailable += (_, a) => { if (running) musicBuffer?.AddSamples(a.Buffer, 0, a.BytesRecorded); };
@@ -105,7 +105,7 @@ public partial class MainWindow : Window
             if (useMicrophone)
             {
                 microphone = new WaveInEvent { WaveFormat = new WaveFormat(SampleRate, 16, Channels) };
-                micBuffer = new BufferedWaveProvider(microphone.WaveFormat) { DiscardOnBufferOverflow = true, ReadFully = true };
+                micBuffer = new BufferedWaveProvider(microphone.WaveFormat) { BufferDuration = TimeSpan.FromSeconds(4), DiscardOnBufferOverflow = false, ReadFully = true };
                 micResampler = new MediaFoundationResampler(micBuffer, new WaveFormat(SampleRate, 16, Channels)) { ResamplerQuality = 60 };
                 micSamples = micResampler.ToSampleProvider();
                 microphone.DataAvailable += (_, a) => { if (running) micBuffer?.AddSamples(a.Buffer, 0, a.BytesRecorded); };
@@ -116,7 +116,7 @@ public partial class MainWindow : Window
             running = true;
             LiveButton.Content = "STOP LIVE";
             LiveStateText.Text = "LIVE";
-            StatusText.Text = "LIVE · system audio → USALB server";
+            StatusText.Text = "LIVE · PCM → Liquidsoap → public stream";
             monitorTimer.Start();
             sendTask = Task.Run(() => SendMixedAudioAsync(token), token);
         }
@@ -138,6 +138,7 @@ public partial class MainWindow : Window
         float lastBass = float.NaN, lastMid = float.NaN, lastTreble = float.NaN;
         try
         {
+            var nextFrameAt = Stopwatch.GetTimestamp() + (long)(Stopwatch.Frequency * (FrameMs / 1000.0));
             while (running && socket?.State == WebSocketState.Open && !token.IsCancellationRequested)
             {
                 Array.Clear(music); Array.Clear(mic);
