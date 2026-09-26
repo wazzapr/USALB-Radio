@@ -18,7 +18,9 @@ OutputDir=.\installer-output
 OutputBaseFilename=USALB-Broadcaster-Setup
 Compression=lzma2
 SolidCompression=yes
-WizardStyle=modern\nCloseApplications=yes\nRestartApplications=yes
+WizardStyle=modern
+CloseApplications=yes
+RestartApplications=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
