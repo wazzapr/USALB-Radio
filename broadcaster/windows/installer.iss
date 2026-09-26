@@ -1,5 +1,5 @@
 #define MyAppName "USALB Broadcaster"
-#define MyAppVersion "1.0.6"
+#define MyAppVersion "1.0.7"
 #define MyAppPublisher "USALB Radio"
 #define MyAppExeName "USALB.Broadcaster.exe"
 
@@ -8,9 +8,9 @@ AppId={{B6C8D2D7-4A4C-4D2D-9B11-8E6D5E6E8A01}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
-VersionInfoVersion=1.0.6.0
-VersionInfoTextVersion=1.0.6
-VersionInfoProductVersion=1.0.6.0
+VersionInfoVersion=1.0.7.0
+VersionInfoTextVersion=1.0.7
+VersionInfoProductVersion=1.0.7.0
 AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\USALB Broadcaster
 DefaultGroupName=USALB Broadcaster
@@ -18,7 +18,7 @@ OutputDir=.\installer-output
 OutputBaseFilename=USALB-Broadcaster-Setup
 Compression=lzma2
 SolidCompression=yes
-WizardStyle=modern
+WizardStyle=modern\nCloseApplications=yes\nRestartApplications=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
