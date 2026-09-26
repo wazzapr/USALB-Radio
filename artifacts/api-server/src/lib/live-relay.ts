@@ -7,7 +7,9 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 const LIVE_SOCKET_PATH = "/api/live/ws";
 const PCM_MAGIC = Buffer.from([0x50, 0x43, 0x4d, 0x31]);
-// Do not replay old audio when a listener connects or reconnects. Replaying even ~1 second\n// of MP3 can make the listener hear the same music twice or jump backward after reconnects.\nconst MAX_RECENT_BYTES = 0;
+// Do not replay old audio when a listener connects or reconnects. Replaying even ~1 second
+// of MP3 can make the listener hear the same music twice or jump backward after reconnects.
+const MAX_RECENT_BYTES = 0;
 const QUALITY_PATHS = new Map<string, 320>([
   ["/api/live/stream", 320],
   ["/api/radio-stream", 320],
