@@ -487,15 +487,15 @@ internal sealed class ChunkedAudioConnection : IAsyncDisposable
 
         var path = string.IsNullOrEmpty(uri.PathAndQuery) ? "/" : uri.PathAndQuery;
         var headers = new StringBuilder();
-        headers.Append($"POST {path} HTTP/1.1\\r\\n");
-        headers.Append($"Host: {uri.Host}{(uri.IsDefaultPort ? "" : ":" + uri.Port)}\\r\\n");
-        headers.Append("Connection: keep-alive\\r\\n");
-        headers.Append("Content-Type: application/octet-stream\\r\\n");
-        headers.Append("Transfer-Encoding: chunked\\r\\n");
-        headers.Append($"X-USALB-Sample-Rate: {sampleRate}\\r\\n");
-        headers.Append($"X-USALB-Channels: {channels}\\r\\n");
-        if (!string.IsNullOrWhiteSpace(key)) headers.Append($"X-Broadcaster-Token: {key}\\r\\n");
-        headers.Append("\\r\\n");
+        headers.Append($"POST {path} HTTP/1.1\r\n");
+        headers.Append($"Host: {uri.Host}{(uri.IsDefaultPort ? "" : ":" + uri.Port)}\r\n");
+        headers.Append("Connection: keep-alive\r\n");
+        headers.Append("Content-Type: application/octet-stream\r\n");
+        headers.Append("Transfer-Encoding: chunked\r\n");
+        headers.Append($"X-USALB-Sample-Rate: {sampleRate}\r\n");
+        headers.Append($"X-USALB-Channels: {channels}\r\n");
+        if (!string.IsNullOrWhiteSpace(key)) headers.Append($"X-Broadcaster-Token: {key}\r\n");
+        headers.Append("\r\n");
 
         var headerBytes = Encoding.ASCII.GetBytes(headers.ToString());
         await stream.WriteAsync(headerBytes, token);
@@ -507,7 +507,7 @@ internal sealed class ChunkedAudioConnection : IAsyncDisposable
         {
             await stream.DisposeAsync();
             client.Dispose();
-            throw new InvalidOperationException($"USALB ingest rejected the connection: {response.Split('\\n')[0].Trim()}");
+            throw new InvalidOperationException($"USALB ingest rejected the connection: {response.Split('\n')[0].Trim()}");
         }
 
         return new ChunkedAudioConnection(client, stream);
@@ -518,7 +518,7 @@ internal sealed class ChunkedAudioConnection : IAsyncDisposable
         if (disposed) throw new ObjectDisposedException(nameof(ChunkedAudioConnection));
         const int magicLength = 4;
         var chunkLength = magicLength + pcm.Length;
-        var prefix = Encoding.ASCII.GetBytes($"{chunkLength:X}\\r\\n");
+        var prefix = Encoding.ASCII.GetBytes($"{chunkLength:X}\r\n");
         await stream.WriteAsync(prefix, token);
         await stream.WriteAsync(new byte[] { 0x50, 0x43, 0x4d, 0x31 }, token);
         await stream.WriteAsync(pcm, token);
@@ -536,7 +536,7 @@ internal sealed class ChunkedAudioConnection : IAsyncDisposable
     {
         if (disposed) return;
         disposed = true;
-        try { await stream.WriteAsync(Encoding.ASCII.GetBytes("0\\r\\n\\r\\n")); } catch { }
+        try { await stream.WriteAsync(Encoding.ASCII.GetBytes("0\r\n\r\n")); } catch { }
         try { await stream.FlushAsync(); } catch { }
         try { await stream.DisposeAsync(); } catch { }
         try { client.Dispose(); } catch { }
