@@ -3,7 +3,7 @@ using System.IO;
 using System.Net.Http;
 using System.Net.WebSockets;
 using System.Text;
-using System.Text.Json;
+using System.Text.Json;\nusing System.Net.Http.Headers;
 using System.Windows;
 using System.Windows.Threading;
 using NAudio.Wave;
@@ -55,6 +55,86 @@ public partial class MainWindow : Window
         LimiterBox.Checked += (_, _) => limiterEnabled = true;
         LimiterBox.Unchecked += (_, _) => limiterEnabled = false;
         Closed += (_, _) => http.Dispose();
+    }
+
+    async void UpdateButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (running)
+        {
+            MessageBox.Show("Stop the live broadcast before updating.", "USALB Broadcaster", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            UpdateButton.IsEnabled = false;
+            UpdateButton.Content = "CHECKING…";
+            var request = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/repos/wazzapr/USALB-Radio/releases/tags/broadcaster-latest");
+            request.Headers.UserAgent.Add(new ProductInfoHeaderValue("USALB-Broadcaster", GetType().Assembly.GetName().Version?.ToString() ?? "1.0"));
+            using var response = await http.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var tag = doc.RootElement.GetProperty("tag_name").GetString() ?? "";
+            var remoteVersionText = tag.StartsWith("broadcaster-v", StringComparison.OrdinalIgnoreCase)
+                ? tag["broadcaster-v".Length..]
+                : (doc.RootElement.TryGetProperty("name", out var name) ? name.GetString()?.Replace("USALB Broadcaster ", "", StringComparison.OrdinalIgnoreCase) ?? "" : "");
+            if (!Version.TryParse(remoteVersionText, out var remoteVersion))
+                throw new InvalidOperationException("The update server returned an invalid broadcaster version.");
+
+            var localVersion = GetType().Assembly.GetName().Version ?? new Version(1, 0, 0);
+            if (remoteVersion <= localVersion)
+            {
+                UpdateButton.Content = "UP TO DATE";
+                StatusText.Text = $"Broadcaster v{localVersion} is up to date.";
+                await Task.Delay(1500);
+                UpdateButton.Content = "CHECK FOR UPDATES";
+                return;
+            }
+
+            if (!doc.RootElement.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException("The latest broadcaster installer is not available yet.");
+
+            string? downloadUrl = null;
+            foreach (var asset in assets.EnumerateArray())
+            {
+                var name = asset.GetProperty("name").GetString() ?? "";
+                if (name.Equals("USALB-Broadcaster-Setup.exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    downloadUrl = asset.GetProperty("browser_download_url").GetString();
+                    break;
+                }
+            }
+            if (string.IsNullOrWhiteSpace(downloadUrl))
+                throw new InvalidOperationException("The latest broadcaster installer is not available yet.");
+
+            UpdateButton.Content = "DOWNLOADING…";
+            StatusText.Text = $"Downloading broadcaster v{remoteVersion}…";
+            var tempInstaller = Path.Combine(Path.GetTempPath(), $"USALB-Broadcaster-Setup-{remoteVersion}.exe");
+            using (var download = await http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead))
+            {
+                download.EnsureSuccessStatusCode();
+                await using var source = await download.Content.ReadAsStreamAsync();
+                await using var target = File.Create(tempInstaller);
+                await source.CopyToAsync(target);
+            }
+
+            StatusText.Text = "Update downloaded. The broadcaster will restart with the new version.";
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = tempInstaller,
+                UseShellExecute = true
+            });
+            IsClosing = true;
+            Close();
+        }
+        catch (Exception ex)
+        {
+            UpdateButton.IsEnabled = true;
+            UpdateButton.Content = "CHECK FOR UPDATES";
+            StatusText.Text = "Update failed: " + ex.GetBaseException().Message;
+            MessageBox.Show(ex.GetBaseException().Message, "USALB Broadcaster Update", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     async void LiveButton_Click(object sender, RoutedEventArgs e)
