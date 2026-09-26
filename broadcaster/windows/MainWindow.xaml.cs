@@ -58,6 +58,8 @@ public partial class MainWindow : Window
         Closed += (_, _) => http.Dispose();
     }
 
+    static string QuoteArg(string value) => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+
     async void UpdateButton_Click(object sender, RoutedEventArgs e)
     {
         if (running)
@@ -70,7 +72,8 @@ public partial class MainWindow : Window
         {
             UpdateButton.IsEnabled = false;
             UpdateButton.Content = "CHECKING…";
-            var request = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/repos/wazzapr/USALB-Radio/releases/tags/broadcaster-latest");
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/repos/wazzapr/USALB-Radio/releases/tags/broadcaster-latest");
             request.Headers.UserAgent.Add(new ProductInfoHeaderValue("USALB-Broadcaster", GetType().Assembly.GetName().Version?.ToString() ?? "1.0"));
             using var response = await http.SendAsync(request);
             response.EnsureSuccessStatusCode();
@@ -79,7 +82,10 @@ public partial class MainWindow : Window
             var tag = doc.RootElement.GetProperty("tag_name").GetString() ?? "";
             var remoteVersionText = tag.StartsWith("broadcaster-v", StringComparison.OrdinalIgnoreCase)
                 ? tag["broadcaster-v".Length..]
-                : (doc.RootElement.TryGetProperty("name", out var name) ? name.GetString()?.Replace("USALB Broadcaster ", "", StringComparison.OrdinalIgnoreCase) ?? "" : "");
+                : (doc.RootElement.TryGetProperty("name", out var name)
+                    ? name.GetString()?.Replace("USALB Broadcaster ", "", StringComparison.OrdinalIgnoreCase) ?? ""
+                    : "");
+
             if (!Version.TryParse(remoteVersionText, out var remoteVersion))
                 throw new InvalidOperationException("The update server returned an invalid broadcaster version.");
 
@@ -90,42 +96,68 @@ public partial class MainWindow : Window
                 StatusText.Text = $"Broadcaster v{localVersion} is up to date.";
                 await Task.Delay(1500);
                 UpdateButton.Content = "CHECK FOR UPDATES";
+                UpdateButton.IsEnabled = true;
                 return;
             }
 
             if (!doc.RootElement.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array)
-                throw new InvalidOperationException("The latest broadcaster installer is not available yet.");
+                throw new InvalidOperationException("The latest broadcaster package is not available yet.");
 
             string? downloadUrl = null;
             foreach (var asset in assets.EnumerateArray())
             {
                 var name = asset.GetProperty("name").GetString() ?? "";
-                if (name.Equals("USALB-Broadcaster-Setup.exe", StringComparison.OrdinalIgnoreCase))
+                if (name.Equals("USALB-Broadcaster-Portable.zip", StringComparison.OrdinalIgnoreCase))
                 {
                     downloadUrl = asset.GetProperty("browser_download_url").GetString();
                     break;
                 }
             }
+
             if (string.IsNullOrWhiteSpace(downloadUrl))
-                throw new InvalidOperationException("The latest broadcaster installer is not available yet.");
+                throw new InvalidOperationException("The latest broadcaster package is not available yet.");
 
             UpdateButton.Content = "DOWNLOADING…";
             StatusText.Text = $"Downloading broadcaster v{remoteVersion}…";
-            var tempInstaller = Path.Combine(Path.GetTempPath(), $"USALB-Broadcaster-Setup-{remoteVersion}.exe");
+
+            var tempZip = Path.Combine(Path.GetTempPath(), $"USALB-Broadcaster-{remoteVersion}.zip");
             using (var download = await http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead))
             {
                 download.EnsureSuccessStatusCode();
                 await using var source = await download.Content.ReadAsStreamAsync();
-                await using var target = File.Create(tempInstaller);
+                await using var target = File.Create(tempZip);
                 await source.CopyToAsync(target);
             }
 
-            StatusText.Text = "Update downloaded. The broadcaster will restart with the new version.";
-            Process.Start(new ProcessStartInfo
+            var exePath = Environment.ProcessPath;
+            if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
+                throw new InvalidOperationException("Could not locate the installed broadcaster executable.");
+
+            var installDir = Path.GetDirectoryName(exePath);
+            if (string.IsNullOrWhiteSpace(installDir))
+                throw new InvalidOperationException("Could not locate the broadcaster installation folder.");
+
+            var updaterPath = Path.Combine(installDir, "USALB.Broadcaster.Updater.exe");
+            if (!File.Exists(updaterPath))
+                throw new InvalidOperationException("This broadcaster build does not contain the automatic updater. Install the latest broadcaster once.");
+
+            UpdateButton.Content = "INSTALLING…";
+            StatusText.Text = $"Installing broadcaster v{remoteVersion} and restarting…";
+
+            var psi = new ProcessStartInfo
             {
-                FileName = tempInstaller,
-                UseShellExecute = true
-            });
+                FileName = updaterPath,
+                UseShellExecute = true,
+                Verb = "runas",
+                WorkingDirectory = installDir,
+                Arguments = string.Join(" ",
+                    "--pid", QuoteArg(Environment.ProcessId.ToString()),
+                    "--zip", QuoteArg(tempZip),
+                    "--target", QuoteArg(installDir),
+                    "--exe", QuoteArg(exePath))
+            };
+
+            Process.Start(psi);
             IsClosing = true;
             Close();
         }
@@ -172,7 +204,6 @@ public partial class MainWindow : Window
         StatusText.Text = "Connecting to USALB…";
         try
         {
-            await ws.ConnectAsync(wsUri, token);
             token.ThrowIfCancellationRequested();
             socket = ws;
 
