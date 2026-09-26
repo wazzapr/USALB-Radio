@@ -37,10 +37,11 @@ app.use(express.urlencoded({ extended: true }));
 // router so /api/radio-stream is handled by the same relay that receives
 // /api/live/ws audio.
 app.use((req, res, next) => {
-  // Liquidsoap is now the single public stream engine. The old custom MP3
-  // relay remains only as a compatibility hook and does not serve audio.
-  if (handleLiquidsoapStreamRequest(req, res)) return;
+  // The proven live MP3 relay is the primary public stream path.
+  // Liquidsoap remains connected as the radio engine, but it must not be
+  // allowed to block the broadcaster or make the public stream go offline.
   if (handleLiveStreamRequest(req, res)) return;
+  if (handleLiquidsoapStreamRequest(req, res)) return;
   next();
 });
 
