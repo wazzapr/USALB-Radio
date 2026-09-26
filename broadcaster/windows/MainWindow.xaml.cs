@@ -516,8 +516,11 @@ internal sealed class ChunkedAudioConnection : IAsyncDisposable
     public async Task SendAudioAsync(byte[] pcm, CancellationToken token)
     {
         if (disposed) throw new ObjectDisposedException(nameof(ChunkedAudioConnection));
-        var prefix = Encoding.ASCII.GetBytes($"{pcm.Length:X}\\r\\n");
+        const int magicLength = 4;
+        var chunkLength = magicLength + pcm.Length;
+        var prefix = Encoding.ASCII.GetBytes($"{chunkLength:X}\\r\\n");
         await stream.WriteAsync(prefix, token);
+        await stream.WriteAsync(new byte[] { 0x50, 0x43, 0x4d, 0x31 }, token);
         await stream.WriteAsync(pcm, token);
         await stream.WriteAsync(new byte[] { 13, 10 }, token);
         await stream.FlushAsync(token);
