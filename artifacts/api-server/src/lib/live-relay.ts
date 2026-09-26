@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { request as httpRequest, type ClientRequest } from "node:http";
-import { liquidsoapPassword, liquidsoapRunning } from "./liquidsoap";
+import { ensureLiquidsoap, liquidsoapPassword, liquidsoapRunning } from "./liquidsoap";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 const LIVE_SOCKET_PATH="/api/live/ws";
@@ -39,8 +39,9 @@ function flushFeed(){
   if(!ok){feedBlocked=true;f.once("drain",()=>{feedBlocked=false;flushFeed();});return;}
  }
 }
-function connectFeed(){
- if(feed||!liquidsoapRunning())return;
+async function connectFeed():Promise<boolean>{
+ if(feed)return true;
+ if(!liquidsoapRunning() && !(await ensureLiquidsoap()))return false;
  const auth=Buffer.from(`source:${liquidsoapPassword()}`).toString("base64");
  const f=httpRequest({host:"127.0.0.1",port:8005,path:"/live",method:"PUT",
   headers:{"Content-Type":"audio/wav","Authorization":`Basic ${auth}`,"Connection":"keep-alive"}});
@@ -48,7 +49,12 @@ function connectFeed(){
  f.on("response",r=>{if((r.statusCode??500)>=400){console.error(`[USALB Liquidsoap feed] HTTP ${r.statusCode}`);f.destroy();}else r.resume();});
  f.on("error",e=>{console.error("[USALB Liquidsoap feed]",e.message);if(feed===f)feed=null;});
  f.on("close",()=>{if(feed===f)feed=null;});
- try{f.write(wavHeader(pcmSampleRate,pcmChannels));flushFeed();}catch{closeFeed();}
+ try{f.write(wavHeader(pcmSampleRate,pcmChannels));flushFeed();}catch{closeFeed();return false;}
+ return await new Promise<boolean>(resolve=>{
+  const timer=setTimeout(()=>resolve(true),1500);
+  f.once("response",r=>{clearTimeout(timer);resolve((r.statusCode??500)<400);});
+  f.once("error",()=>{clearTimeout(timer);resolve(false);});
+ });
 }
 function sendJson(s:WebSocket,p:Record<string,unknown>){if(s.readyState===WebSocket.OPEN)s.send(JSON.stringify(p));}
 function raw(data:RawData):Buffer{if(Buffer.isBuffer(data))return data;if(Array.isArray(data))return Buffer.concat(data);if(data instanceof ArrayBuffer)return Buffer.from(data);return Buffer.from(data);}
@@ -58,7 +64,7 @@ function relay(chunk:Buffer){
  if(!chunk.subarray(0,4).equals(PCM_MAGIC))return;
  const pcm=chunk.subarray(4);if(!pcm.length)return;
  lastAudioAt=new Date();totalBytes+=pcm.length;
- if(!feed)connectFeed();if(!feed)return;
+ if(!feed)void connectFeed();if(!feed)return;
  queue.push(pcm);queuedBytes+=pcm.length;
  if(queuedBytes>MAX_QUEUE){console.error("[USALB Liquidsoap feed] backpressure limit reached");reset();return;}
  flushFeed();
@@ -86,9 +92,8 @@ async function attachBroadcaster(socket:WebSocket,token:string|null,req:Incoming
     broadcastMode="pcm";
     pcmSampleRate=Number.isFinite(m.pcmSampleRate)&&Number(m.pcmSampleRate)>0?Math.round(Number(m.pcmSampleRate)):44100;
     pcmChannels=Number.isFinite(m.pcmChannels)&&Number(m.pcmChannels)>0?Math.min(2,Math.max(1,Math.round(Number(m.pcmChannels)))):2;
-    if(!liquidsoapRunning()){sendJson(socket,{type:"error",message:"USALB Liquidsoap is not running."});reset();return;}
-    connectFeed();
-    if(!feed){sendJson(socket,{type:"error",message:"Could not connect the broadcaster to Liquidsoap."});reset();return;}
+    if(!(await ensureLiquidsoap())){sendJson(socket,{type:"error",message:"USALB Liquidsoap could not be started."});reset();return;}
+    if(!(await connectFeed()) || !feed){sendJson(socket,{type:"error",message:"Could not connect the broadcaster to Liquidsoap."});reset();return;}
     live=true;startedAt=new Date();lastAudioAt=null;totalBytes=0;announce();
     sendJson(socket,{type:"ready",live:true,codec:"pcm",contentType:"audio/mpeg",qualities:[320]});
    }else if(m.type==="stop"&&broadcaster===socket)reset();
