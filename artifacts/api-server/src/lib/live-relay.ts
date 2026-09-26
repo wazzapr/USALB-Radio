@@ -17,6 +17,8 @@ type Quality = 320;
 type Encoder = { bitrate: Quality; process: ChildProcessWithoutNullStreams; recentChunks: Buffer[]; recentBytes: number };
 const encoders = new Map<Quality, Encoder>();
 let broadcaster: WebSocket | null = null;
+let httpBroadcaster: IncomingMessage | null = null;
+let httpBroadcasterResponse: ServerResponse | null = null;
 let live = false;
 let broadcastMode: "pcm" | "mp3" | null = null;
 let pcmSampleRate = 48000;
@@ -173,6 +175,11 @@ function cancelBroadcasterDisconnectGrace(): void {
 function reset(): void {
   cancelBroadcasterDisconnectGrace();
   broadcaster = null;
+  if (httpBroadcasterResponse && !httpBroadcasterResponse.writableEnded) {
+    try { httpBroadcasterResponse.end(); } catch {}
+  }
+  httpBroadcaster = null;
+  httpBroadcasterResponse = null;
   live = false;
   broadcastMode = null;
   startedAt = null;
@@ -341,10 +348,91 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
   });
 }
 
+export function handleLiveIngestRequest(req: IncomingMessage, res: ServerResponse): boolean {
+  const url = new URL(req.url ?? "", `http://${req.headers.host ?? "localhost"}`);
+  if (req.method !== "POST" || url.pathname !== "/api/live/ingest") return false;
+
+  const token = req.headers["x-broadcaster-token"]?.toString().trim() || "";
+  if (!token) {
+    res.statusCode = 401;
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.end("Broadcaster token required.");
+    return true;
+  }
+
+  if (httpBroadcaster && httpBroadcaster !== req) {
+    try { httpBroadcaster.destroy(); } catch {}
+  }
+
+  cancelBroadcasterDisconnectGrace();
+
+  const resumingExistingBroadcast = live && encoders.has(320);
+  httpBroadcaster = req;
+  httpBroadcasterResponse = res;
+  broadcastMode = "pcm";
+  pcmSampleRate = Math.round(Number(req.headers["x-usalb-sample-rate"]) || 44100);
+  pcmChannels = Math.min(2, Math.max(1, Math.round(Number(req.headers["x-usalb-channels"]) || 2)));
+
+  if (!encoders.has(320) && !startEncoders()) {
+    res.statusCode = 503;
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.end("Server audio encoder is unavailable.");
+    httpBroadcaster = null;
+    httpBroadcasterResponse = null;
+    return true;
+  }
+
+  if (!resumingExistingBroadcast) {
+    live = true;
+    startedAt = new Date();
+    lastAudioAt = null;
+    totalBytes = 0;
+    announceWsStatus();
+  } else {
+    live = true;
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "text/plain; charset=utf-8",
+    "Cache-Control": "no-store",
+    "Connection": "keep-alive",
+  });
+  res.flushHeaders?.();
+
+  const disconnect = () => {
+    if (httpBroadcaster !== req) return;
+    httpBroadcaster = null;
+    httpBroadcasterResponse = null;
+    if (live) {
+      cancelBroadcasterDisconnectGrace();
+      broadcasterDisconnectTimer = setTimeout(() => {
+        broadcasterDisconnectTimer = null;
+        if (!httpBroadcaster && !broadcaster) reset();
+      }, BROADCASTER_RECONNECT_GRACE_MS);
+    } else {
+      reset();
+    }
+  };
+
+  req.on("data", (chunk: Buffer) => {
+    if (!live || httpBroadcaster !== req) return;
+    relay(chunk);
+  });
+  req.once("end", disconnect);
+  req.once("close", disconnect);
+  req.once("aborted", disconnect);
+  req.once("error", disconnect);
+  res.once("close", () => {
+    if (httpBroadcaster === req) disconnect();
+  });
+
+  return true;
+}
+
 export function getLiveSnapshot() {
   return {
     streaming: live && lastAudioAt !== null,
-    connected: broadcaster !== null,
+    connected: broadcaster !== null || httpBroadcaster !== null,
     listenerCount: listeners.size,
     contentType: live ? "audio/mpeg" : null,
     bitrateKbps: live ? 320 : null,
