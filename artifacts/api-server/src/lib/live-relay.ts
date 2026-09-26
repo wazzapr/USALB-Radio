@@ -83,7 +83,7 @@ async function attachBroadcaster(socket:WebSocket,token:string|null,req:Incoming
  if(!token&&req.headers.origin&&!sameOrigin(req)){sendJson(socket,{type:"error",message:"Broadcaster must connect from the USALB control room."});socket.close(1008);return;}
  if(broadcaster&&broadcaster!==socket)try{broadcaster.close(1012,"Replaced by a new broadcaster");}catch{}
  broadcaster=socket;live=false;broadcastMode=null;clearQueue();
- socket.on("message",(data,isBinary)=>{
+ socket.on("message",async (data,isBinary)=>{
   if(isBinary){if(live)relay(raw(data));return;}
   try{
    const m=JSON.parse(data.toString()) as {type?:string;codec?:string;mimeType?:string;pcmSampleRate?:number;pcmChannels?:number};
