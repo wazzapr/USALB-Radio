@@ -38,6 +38,8 @@ public partial class MainWindow : Window
     volatile bool limiterEnabled = true;
     int stopping;
     bool IsClosing { get; set; }
+    Uri? liveWsUri;
+    string liveKey = "";
 
     public MainWindow()
     {
@@ -82,11 +84,9 @@ public partial class MainWindow : Window
         var token = cts.Token;
         var scheme = baseUri.Scheme == Uri.UriSchemeHttps ? "wss" : "ws";
         var port = baseUri.IsDefaultPort ? "" : ":" + baseUri.Port;
-        var wsUri = new Uri($"{scheme}://{baseUri.Host}{port}/api/live/ws?role=broadcaster");
-        var ws = new ClientWebSocket();
-        ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(15);
-        var key = KeyBox.Password.Trim();
-        if (!string.IsNullOrWhiteSpace(key)) ws.Options.SetRequestHeader("x-broadcaster-token", key);
+        liveWsUri = new Uri($"{scheme}://{baseUri.Host}{port}/api/live/ws?role=broadcaster");
+        liveKey = KeyBox.Password.Trim();
+        var ws = await ConnectWebSocketAsync(liveWsUri, liveKey, token);
 
         StatusText.Text = "Connecting to USALB…";
         try
@@ -115,7 +115,7 @@ public partial class MainWindow : Window
                 microphone.StartRecording();
             }
 
-            await SendJsonAsync("{\"type\":\"start\",\"mimeType\":\"audio/pcm;rate=44100;channels=2\",\"codec\":\"pcm\",\"pcmSampleRate\":44100,\"pcmChannels\":2}", token);
+            await SendStartAsync(ws, token);
             running = true;
             LiveButton.Content = "STOP LIVE";
             LiveStateText.Text = "LIVE";
@@ -131,6 +131,50 @@ public partial class MainWindow : Window
         }
     }
 
+    async Task<ClientWebSocket> ConnectWebSocketAsync(Uri wsUri, string key, CancellationToken token)
+    {
+        var ws = new ClientWebSocket();
+        ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+        if (!string.IsNullOrWhiteSpace(key)) ws.Options.SetRequestHeader("x-broadcaster-token", key);
+        try { await ws.ConnectAsync(wsUri, token); return ws; }
+        catch { try { ws.Abort(); } catch { } ws.Dispose(); throw; }
+    }
+
+    async Task SendStartAsync(ClientWebSocket ws, CancellationToken token)
+    {
+        var json = "{\"type\":\"start\",\"mimeType\":\"audio/pcm;rate=44100;channels=2\",\"codec\":\"pcm\",\"pcmSampleRate\":44100,\"pcmChannels\":2}";
+        await ws.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, token);
+    }
+
+    async Task<bool> ReconnectAsync(CancellationToken token)
+    {
+        var uri = liveWsUri;
+        if (uri is null) return false;
+        while (running && !token.IsCancellationRequested)
+        {
+            try
+            {
+                StatusText.Text = "Reconnecting to USALB…";
+                var ws = await ConnectWebSocketAsync(uri, liveKey, token);
+                await SendStartAsync(ws, token);
+                var old = socket;
+                socket = ws;
+                try { old?.Abort(); old?.Dispose(); } catch { }
+                await Dispatcher.InvokeAsync(() => {
+                    LiveStateText.Text = "LIVE";
+                    StatusText.Text = "LIVE · reconnected automatically";
+                });
+                return true;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { return false; }
+            catch
+            {
+                try { await Task.Delay(3000, token); } catch { return false; }
+            }
+        }
+        return false;
+    }
+
     async Task SendMixedAudioAsync(CancellationToken token)
     {
         var frameSamples = SampleRate * Channels * FrameMs / 1000;
@@ -142,8 +186,12 @@ public partial class MainWindow : Window
         try
         {
             var nextFrameAt = Stopwatch.GetTimestamp() + (long)(Stopwatch.Frequency * (FrameMs / 1000.0));
-            while (running && socket?.State == WebSocketState.Open && !token.IsCancellationRequested)
+            while (running && !token.IsCancellationRequested)
             {
+                if (socket?.State != WebSocketState.Open)
+                {
+                    if (!await ReconnectAsync(token)) break;
+                }
                 Array.Clear(music); Array.Clear(mic);
                 musicSamples?.Read(music, 0, music.Length);
                 micSamples?.Read(mic, 0, mic.Length);
@@ -194,7 +242,19 @@ public partial class MainWindow : Window
                 var packet = new byte[4 + output.Length];
                 packet[0] = 0x50; packet[1] = 0x43; packet[2] = 0x4d; packet[3] = 0x31;
                 Buffer.BlockCopy(output, 0, packet, 4, output.Length);
-                await socket.SendAsync(packet, WebSocketMessageType.Binary, true, token);
+                var activeSocket = socket;
+                if (activeSocket?.State != WebSocketState.Open) continue;
+                try
+                {
+                    await activeSocket.SendAsync(packet, WebSocketMessageType.Binary, true, token);
+                }
+                catch (WebSocketException)
+                {
+                    try { activeSocket.Abort(); } catch { }
+                    try { activeSocket.Dispose(); } catch { }
+                    if (ReferenceEquals(socket, activeSocket)) socket = null;
+                    continue;
+                }
                 var now = Stopwatch.GetTimestamp();
                 var remaining = nextFrameAt - now;
                 if (remaining > 0)
@@ -277,6 +337,7 @@ public partial class MainWindow : Window
             var cts = sessionCts;
             cts?.Cancel();
             var ws = socket; socket = null;
+            liveWsUri = null; liveKey = "";
             try { ws?.Abort(); } catch { }
             try { loopback?.StopRecording(); } catch { }
             try { microphone?.StopRecording(); } catch { }
