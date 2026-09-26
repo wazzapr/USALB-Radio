@@ -293,8 +293,8 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
     }
   });
 
-  socket.once("close", () => { if (broadcaster === socket) reset(); });
-  socket.once("error", () => { if (broadcaster === socket) reset(); });
+  socket.once("close", () => { if (broadcaster === socket) reset(); alive.delete(socket); });
+  socket.once("error", () => { if (broadcaster === socket) reset(); alive.delete(socket); });
 }
 
 export function getLiveSnapshot() {
@@ -339,6 +339,8 @@ export function handleLiveStreamRequest(req: IncomingMessage, res: ServerRespons
   res.flushHeaders?.();
 
   listeners.set(res, selectedQuality);
+  res.socket?.setKeepAlive(true, 30_000);
+  res.socket?.setNoDelay(true);
 
   for (const chunk of encoder.recentChunks) {
     if (!res.writableEnded) res.write(chunk);
@@ -353,6 +355,22 @@ export function handleLiveStreamRequest(req: IncomingMessage, res: ServerRespons
 
 export function attachLiveRelay(server: Server): void {
   const wss = new WebSocketServer({ noServer: true });
+  // Keep the long-lived broadcaster/listener WebSocket path alive through
+  // reverse proxies and detect half-open connections before they become
+  // stuck. The ws client automatically answers protocol ping frames with pong.
+  const alive = new WeakMap<WebSocket, boolean>();
+  const heartbeat = setInterval(() => {
+    for (const socket of wss.clients) {
+      if (alive.get(socket) === false) {
+        try { socket.terminate(); } catch {}
+        continue;
+      }
+      alive.set(socket, false);
+      try { socket.ping(); } catch {}
+    }
+  }, 20_000);
+  heartbeat.unref?.();
+  wss.on("close", () => clearInterval(heartbeat));
 
   server.on("upgrade", (request, socket, head) => {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
@@ -362,6 +380,8 @@ export function attachLiveRelay(server: Server): void {
     }
 
     wss.handleUpgrade(request, socket, head, (client) => {
+      alive.set(client, true);
+      client.on("pong", () => alive.set(client, true));
       const role = url.searchParams.get("role");
       const token = url.searchParams.get("key") || request.headers["x-broadcaster-token"]?.toString() || null;
       if (role === "broadcaster") {
@@ -369,8 +389,8 @@ export function attachLiveRelay(server: Server): void {
       } else if (role === "listener") {
         wsListeners.add(client);
         sendJson(client, { type: "status", live, audioMode: broadcastMode, sampleRate: pcmSampleRate, channels: pcmChannels });
-        client.once("close", () => wsListeners.delete(client));
-        client.once("error", () => wsListeners.delete(client));
+        client.once("close", () => { wsListeners.delete(client); alive.delete(client); });
+        client.once("error", () => { wsListeners.delete(client); alive.delete(client); });
         if (!live) return;
         if (broadcastMode !== "pcm") return;
       } else {
