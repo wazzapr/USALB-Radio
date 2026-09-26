@@ -7,7 +7,8 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 const LIVE_SOCKET_PATH = "/api/live/ws";
 const PCM_MAGIC = Buffer.from([0x50, 0x43, 0x4d, 0x31]);
-// Keep only a short startup cushion. A large replay buffer makes a listener hear old audio and feel delayed.\nconst MAX_RECENT_BYTES = 32 * 1024;
+// Keep only a short startup cushion. A large replay buffer makes a listener hear old audio and feel delayed.
+const MAX_RECENT_BYTES = 32 * 1024;
 const QUALITY_PATHS = new Map<string, 320>([
   ["/api/live/stream", 320],
   ["/api/radio-stream", 320],
@@ -327,7 +328,9 @@ export function handleLiveStreamRequest(req: IncomingMessage, res: ServerRespons
   const selectedQuality: Quality = broadcastMode === "pcm" ? quality : 320;
   const encoder = encoders.get(selectedQuality);
   if (!encoder) { res.statusCode = 503; res.setHeader("Content-Type", "text/plain; charset=utf-8"); res.end("Requested stream quality is unavailable."); return true; }
-  // Do not let TCP/Nagle or the HTTP response accumulate avoidable audio latency.\n  res.socket?.setNoDelay(true);\n  res.writeHead(200, {
+  // Do not let TCP/Nagle or the HTTP response accumulate avoidable audio latency.
+  res.socket?.setNoDelay(true);
+  res.writeHead(200, {
     "Content-Type": "audio/mpeg",
     "Cache-Control": "no-cache, no-store, must-revalidate, proxy-revalidate",
     Pragma: "no-cache",
