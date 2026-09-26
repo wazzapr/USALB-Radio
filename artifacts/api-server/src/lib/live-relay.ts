@@ -407,6 +407,12 @@ export function attachLiveRelay(server: Server): void {
       return;
     }
 
+    // Explicitly disable Node's idle socket timeout on the upgraded broadcaster
+    // connection. The broadcaster is intentionally long-lived.
+    socket.setTimeout(0);
+    socket.setKeepAlive(true, 30_000);
+    socket.setNoDelay(true);
+
     wss.handleUpgrade(request, socket, head, (client) => {
       const role = url.searchParams.get("role");
       const token = url.searchParams.get("key") || request.headers["x-broadcaster-token"]?.toString() || null;
