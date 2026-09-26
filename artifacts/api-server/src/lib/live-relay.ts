@@ -239,6 +239,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
   }
 
   cancelBroadcasterDisconnectGrace();
+  const resumingExistingBroadcast = live && encoders.has(320);
   broadcaster = socket;
 
   // Keep the long-lived broadcaster WebSocket active through reverse proxies.
@@ -251,8 +252,10 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
   }, BROADCASTER_WS_PING_MS);
   socket.once("close", () => clearInterval(pingTimer));
 
-  live = false;
-  broadcastMode = null;
+  if (!resumingExistingBroadcast) {
+    live = false;
+    broadcastMode = null;
+  }
 
   socket.on("message", (data, isBinary) => {
     if (isBinary) {
