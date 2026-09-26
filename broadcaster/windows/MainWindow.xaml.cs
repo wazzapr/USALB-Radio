@@ -61,7 +61,7 @@ public partial class MainWindow : Window
         if (running) { await StopAsync(); return; }
         try { await StartAsync(); }
         catch (OperationCanceledException) { if (!IsLoaded) return; await StopAsync(); }
-        catch (Exception ex) { StatusText.Text = "Error: " + ex.Message; await StopAsync(); }
+        catch (Exception ex) { StatusText.Text = "CONNECTION ERROR: " + ex.GetBaseException().Message; LiveStateText.Text = "ERROR"; await StopAsync(); }
     }
 
     async Task StartAsync()
@@ -84,6 +84,7 @@ public partial class MainWindow : Window
         var port = baseUri.IsDefaultPort ? "" : ":" + baseUri.Port;
         var wsUri = new Uri($"{scheme}://{baseUri.Host}{port}/api/live/ws?role=broadcaster");
         var ws = new ClientWebSocket();
+        ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(15);
         var key = KeyBox.Password.Trim();
         if (!string.IsNullOrWhiteSpace(key)) ws.Options.SetRequestHeader("x-broadcaster-token", key);
 
@@ -122,11 +123,11 @@ public partial class MainWindow : Window
             monitorTimer.Start();
             sendTask = Task.Run(() => SendMixedAudioAsync(token), token);
         }
-        catch
+        catch (Exception ex)
         {
             try { ws.Abort(); } catch { }
             ws.Dispose();
-            throw;
+            throw new InvalidOperationException($"USALB connection failed: {ex.GetBaseException().Message}", ex);
         }
     }
 
