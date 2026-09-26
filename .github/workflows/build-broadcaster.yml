@@ -34,6 +34,12 @@ jobs:
       - name: Publish self-contained Windows app
         run: dotnet publish USALBBroadcaster.csproj -c Release -r win-x64 --self-contained true -o publish
 
+      - name: Build automatic updater helper
+        shell: powershell
+        run: |
+          dotnet publish Updater/USALB.Broadcaster.Updater.csproj -c Release -r win-x64 --self-contained true -o Updater/publish
+          Copy-Item Updater/publish/USALB.Broadcaster.Updater.exe publish/USALB.Broadcaster.Updater.exe -Force
+
       - name: Install Inno Setup
         shell: powershell
         run: choco install innosetup --no-progress -y
@@ -72,7 +78,8 @@ jobs:
           name: USALB Broadcaster Latest
           body: |
             Windows installer and portable build of USALB Broadcaster.
-            Recommended: run USALB-Broadcaster-Setup.exe.
+            Existing installations can use CHECK FOR UPDATES for an in-place update.
+            New installations can use USALB-Broadcaster-Setup.exe.
           files: |
             broadcaster/windows/installer-output/USALB-Broadcaster-Setup.exe
             USALB-Broadcaster-Portable.zip
