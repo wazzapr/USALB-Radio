@@ -106,8 +106,8 @@ public partial class MainWindow : Window
             string? downloadUrl = null;
             foreach (var asset in assets.EnumerateArray())
             {
-                var name = asset.GetProperty("name").GetString() ?? "";
-                if (name.Equals("USALB-Broadcaster-Portable.zip", StringComparison.OrdinalIgnoreCase))
+                var assetName = asset.GetProperty("name").GetString() ?? "";
+                if (assetName.Equals("USALB-Broadcaster-Portable.zip", StringComparison.OrdinalIgnoreCase))
                 {
                     downloadUrl = asset.GetProperty("browser_download_url").GetString();
                     break;
