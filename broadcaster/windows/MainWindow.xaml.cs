@@ -115,7 +115,6 @@ public partial class MainWindow : Window
             }
 
             await SendJsonAsync("{\"type\":\"start\",\"mimeType\":\"audio/pcm;rate=44100;channels=2\",\"codec\":\"pcm\",\"pcmSampleRate\":44100,\"pcmChannels\":2}", token);
-            await WaitForReadyAsync(ws, token);
             running = true;
             LiveButton.Content = "STOP LIVE";
             LiveStateText.Text = "LIVE";
