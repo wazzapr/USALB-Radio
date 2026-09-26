@@ -9,7 +9,7 @@ live = input.harbor(
   "live",
   port=8005,
   password=source_password,
-  buffer=2.0,
+  buffer=1.0,
   timeout=120.0
 )
 
@@ -20,8 +20,8 @@ output.harbor(
   mount="/stream",
   port=8006,
   format="audio/mpeg",
-  buffer=262140,
-  burst=16384,
+  buffer=32768,
+  burst=4096,
   %mp3(bitrate=320, samplerate=44100, stereo=true, internal_quality=2),
   radio
 )
