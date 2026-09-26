@@ -28,7 +28,8 @@ const listeners = new Map<ServerResponse, Quality>();
 const wsListeners = new Set<WebSocket>();
 let liquidsoapFeed: ClientRequest | null = null;
 let broadcasterDisconnectTimer: NodeJS.Timeout | null = null;
-const BROADCASTER_RECONNECT_GRACE_MS = 60_000;
+const BROADCASTER_RECONNECT_GRACE_MS = 10_000;
+const BROADCASTER_WS_PING_MS = 20_000;
 
 function connectLiquidsoapFeed(): void {
   if (liquidsoapFeed || !liquidsoapRunning()) return;
@@ -239,6 +240,17 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
 
   cancelBroadcasterDisconnectGrace();
   broadcaster = socket;
+
+  // Keep the long-lived broadcaster WebSocket active through reverse proxies.
+  // This is a WebSocket control-frame ping only: it never terminates a healthy
+  // broadcast and does not replace the broadcaster's audio traffic.
+  const pingTimer = setInterval(() => {
+    if (socket.readyState === WebSocket.OPEN) {
+      try { socket.ping(); } catch {}
+    }
+  }, BROADCASTER_WS_PING_MS);
+  socket.once("close", () => clearInterval(pingTimer));
+
   live = false;
   broadcastMode = null;
 
