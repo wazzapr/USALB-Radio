@@ -219,6 +219,40 @@ public partial class MainWindow : Window
         await ws.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, token);
     }
 
+    async Task WaitForReadyAsync(ClientWebSocket ws, CancellationToken token)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var buffer = new byte[4096];
+
+        while (ws.State == WebSocketState.Open && !timeout.IsCancellationRequested)
+        {
+            using var message = new MemoryStream();
+            WebSocketReceiveResult result;
+            do
+            {
+                result = await ws.ReceiveAsync(buffer, timeout.Token);
+                if (result.MessageType == WebSocketMessageType.Close)
+                    throw new InvalidOperationException("USALB server closed the broadcaster connection.");
+                if (result.Count > 0) message.Write(buffer, 0, result.Count);
+            }
+            while (!result.EndOfMessage);
+
+            if (result.MessageType != WebSocketMessageType.Text) continue;
+            using var doc = JsonDocument.Parse(message.ToArray());
+            var root = doc.RootElement;
+            var type = root.TryGetProperty("type", out var typeValue) ? typeValue.GetString() : null;
+            if (type == "ready") return;
+            if (type == "error")
+            {
+                var messageText = root.TryGetProperty("message", out var value) ? value.GetString() : null;
+                throw new InvalidOperationException(messageText ?? "USALB server rejected the broadcast.");
+            }
+        }
+
+        throw new TimeoutException("USALB server did not confirm the live connection.");
+    }
+
     async Task StopAsync()
     {
         if (Interlocked.Exchange(ref stopping, 1) != 0) return;
