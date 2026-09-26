@@ -5,6 +5,9 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
+using System.Net.Security;
+using System.Security.Authentication;
 using System.Windows;
 using System.Windows.Threading;
 using NAudio.Wave;
@@ -18,7 +21,7 @@ public partial class MainWindow : Window
     readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(5) };
     readonly DispatcherTimer monitorTimer = new() { Interval = TimeSpan.FromSeconds(3) };
 
-    ClientWebSocket? socket;
+    ChunkedAudioConnection? audioConnection;
     WasapiLoopbackCapture? loopback;
     WaveInEvent? microphone;
     BufferedWaveProvider? musicBuffer;
@@ -39,7 +42,7 @@ public partial class MainWindow : Window
     volatile bool limiterEnabled = true;
     int stopping;
     bool IsClosing { get; set; }
-    Uri? liveWsUri;
+    Uri? liveIngestUri;
     string liveKey = "";
 
     public MainWindow()
@@ -195,17 +198,14 @@ public partial class MainWindow : Window
         var cts = new CancellationTokenSource();
         sessionCts = cts;
         var token = cts.Token;
-        var scheme = baseUri.Scheme == Uri.UriSchemeHttps ? "wss" : "ws";
         var port = baseUri.IsDefaultPort ? "" : ":" + baseUri.Port;
-        liveWsUri = new Uri($"{scheme}://{baseUri.Host}{port}/api/live/ws?role=broadcaster");
+        liveIngestUri = new Uri($"{baseUri.Scheme}://{baseUri.Host}{port}/api/live/ingest");
         liveKey = KeyBox.Password.Trim();
-        var ws = await ConnectWebSocketAsync(liveWsUri, liveKey, token);
 
         StatusText.Text = "Connecting to USALB…";
         try
         {
             token.ThrowIfCancellationRequested();
-            socket = ws;
 
             if (useSystemAudio)
             {
@@ -227,51 +227,42 @@ public partial class MainWindow : Window
                 microphone.StartRecording();
             }
 
-            await SendStartAsync(ws, token);
+            audioConnection = await ConnectAudioAsync(liveIngestUri, liveKey, token);
             running = true;
             LiveButton.Content = "STOP LIVE";
             LiveStateText.Text = "LIVE";
-            StatusText.Text = "LIVE · PCM → Liquidsoap → public stream";
+            StatusText.Text = "LIVE · persistent source → USALB stream";
             monitorTimer.Start();
             sendTask = Task.Run(() => SendMixedAudioAsync(token), token);
         }
         catch (Exception ex)
         {
-            try { ws.Abort(); } catch { }
-            ws.Dispose();
+            try { if (audioConnection is not null) await audioConnection.DisposeAsync(); } catch { }
+            audioConnection = null;
             throw new InvalidOperationException($"USALB connection failed: {ex.GetBaseException().Message}", ex);
         }
     }
 
-    async Task<ClientWebSocket> ConnectWebSocketAsync(Uri wsUri, string key, CancellationToken token)
+    async Task<ChunkedAudioConnection> ConnectAudioAsync(Uri uri, string key, CancellationToken token)
     {
-        var ws = new ClientWebSocket();
-        ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(15);
-        if (!string.IsNullOrWhiteSpace(key)) ws.Options.SetRequestHeader("x-broadcaster-token", key);
-        try { await ws.ConnectAsync(wsUri, token); return ws; }
-        catch { try { ws.Abort(); } catch { } ws.Dispose(); throw; }
-    }
-
-    async Task SendStartAsync(ClientWebSocket ws, CancellationToken token)
-    {
-        var json = "{\"type\":\"start\",\"mimeType\":\"audio/pcm;rate=44100;channels=2\",\"codec\":\"pcm\",\"pcmSampleRate\":44100,\"pcmChannels\":2}";
-        await ws.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, token);
+        var connection = await ChunkedAudioConnection.ConnectAsync(uri, key, SampleRate, Channels, token);
+        return connection;
     }
 
     async Task<bool> ReconnectAsync(CancellationToken token)
     {
-        var uri = liveWsUri;
+        var uri = liveIngestUri;
         if (uri is null) return false;
+
         while (running && !token.IsCancellationRequested)
         {
             try
             {
-                StatusText.Text = "Reconnecting to USALB…";
-                var ws = await ConnectWebSocketAsync(uri, liveKey, token);
-                await SendStartAsync(ws, token);
-                var old = socket;
-                socket = ws;
-                try { old?.Abort(); old?.Dispose(); } catch { }
+                await Dispatcher.InvokeAsync(() => StatusText.Text = "Reconnecting to USALB…");
+                var connection = await ConnectAudioAsync(uri, liveKey, token);
+                var old = audioConnection;
+                audioConnection = connection;
+                if (old is not null) { try { await old.DisposeAsync(); } catch { } }
                 await Dispatcher.InvokeAsync(() => {
                     LiveStateText.Text = "LIVE";
                     StatusText.Text = "LIVE · reconnected automatically";
@@ -300,7 +291,7 @@ public partial class MainWindow : Window
             var nextFrameAt = Stopwatch.GetTimestamp() + (long)(Stopwatch.Frequency * (FrameMs / 1000.0));
             while (running && !token.IsCancellationRequested)
             {
-                if (socket?.State != WebSocketState.Open)
+                if (audioConnection is null)
                 {
                     if (!await ReconnectAsync(token)) break;
                 }
@@ -351,20 +342,19 @@ public partial class MainWindow : Window
                     output[i * 2] = (byte)(sl & 255); output[i * 2 + 1] = (byte)(sl >> 8);
                     output[(i + 1) * 2] = (byte)(sr & 255); output[(i + 1) * 2 + 1] = (byte)(sr >> 8);
                 }
-                var packet = new byte[4 + output.Length];
-                packet[0] = 0x50; packet[1] = 0x43; packet[2] = 0x4d; packet[3] = 0x31;
-                Buffer.BlockCopy(output, 0, packet, 4, output.Length);
-                var activeSocket = socket;
-                if (activeSocket?.State != WebSocketState.Open) continue;
+                var activeConnection = audioConnection;
+                if (activeConnection is null) continue;
                 try
                 {
-                    await activeSocket.SendAsync(packet, WebSocketMessageType.Binary, true, token);
+                    await activeConnection.SendAudioAsync(output, token);
                 }
-                catch (WebSocketException)
+                catch (Exception) when (!token.IsCancellationRequested)
                 {
-                    try { activeSocket.Abort(); } catch { }
-                    try { activeSocket.Dispose(); } catch { }
-                    if (ReferenceEquals(socket, activeSocket)) socket = null;
+                    if (ReferenceEquals(audioConnection, activeConnection))
+                    {
+                        try { await activeConnection.DisposeAsync(); } catch { }
+                        audioConnection = null;
+                    }
                     continue;
                 }
                 var now = Stopwatch.GetTimestamp();
@@ -398,47 +388,6 @@ public partial class MainWindow : Window
         return value;
     }
 
-    async Task SendJsonAsync(string json, CancellationToken token)
-    {
-        var ws = socket;
-        if (ws?.State != WebSocketState.Open) return;
-        await ws.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, token);
-    }
-
-    async Task WaitForReadyAsync(ClientWebSocket ws, CancellationToken token)
-    {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-        timeout.CancelAfter(TimeSpan.FromSeconds(10));
-        var buffer = new byte[4096];
-
-        while (ws.State == WebSocketState.Open && !timeout.IsCancellationRequested)
-        {
-            using var message = new MemoryStream();
-            WebSocketReceiveResult result;
-            do
-            {
-                result = await ws.ReceiveAsync(buffer, timeout.Token);
-                if (result.MessageType == WebSocketMessageType.Close)
-                    throw new InvalidOperationException("USALB server closed the broadcaster connection.");
-                if (result.Count > 0) message.Write(buffer, 0, result.Count);
-            }
-            while (!result.EndOfMessage);
-
-            if (result.MessageType != WebSocketMessageType.Text) continue;
-            using var doc = JsonDocument.Parse(message.ToArray());
-            var root = doc.RootElement;
-            var type = root.TryGetProperty("type", out var typeValue) ? typeValue.GetString() : null;
-            if (type == "ready") return;
-            if (type == "error")
-            {
-                var messageText = root.TryGetProperty("message", out var value) ? value.GetString() : null;
-                throw new InvalidOperationException(messageText ?? "USALB server rejected the broadcast.");
-            }
-        }
-
-        throw new TimeoutException("USALB server did not confirm the live connection.");
-    }
-
     async Task StopAsync()
     {
         if (Interlocked.Exchange(ref stopping, 1) != 0) return;
@@ -448,15 +397,14 @@ public partial class MainWindow : Window
             monitorTimer.Stop();
             var cts = sessionCts;
             cts?.Cancel();
-            var ws = socket; socket = null;
-            liveWsUri = null; liveKey = "";
-            try { ws?.Abort(); } catch { }
+            var connection = audioConnection; audioConnection = null;
+            liveIngestUri = null; liveKey = "";
+            if (connection is not null) { try { await connection.DisposeAsync(); } catch { } }
             try { loopback?.StopRecording(); } catch { }
             try { microphone?.StopRecording(); } catch { }
             var task = sendTask; sendTask = null;
             if (task is not null) { try { await Task.WhenAny(task, Task.Delay(1500)); } catch { } }
             try { loopback?.Dispose(); microphone?.Dispose(); musicResampler?.Dispose(); micResampler?.Dispose(); } catch { }
-            try { ws?.Dispose(); } catch { }
             try { cts?.Dispose(); } catch { }
             loopback = null; microphone = null; musicResampler = null; micResampler = null;
             musicBuffer = null; micBuffer = null; musicSamples = null; micSamples = null; sessionCts = null;
@@ -501,12 +449,116 @@ public partial class MainWindow : Window
     {
         IsClosing = true; running = false; monitorTimer.Stop();
         try { sessionCts?.Cancel(); } catch { }
-        try { socket?.Abort(); } catch { }
+        try { audioConnection?.Abort(); } catch { }
         base.OnClosing(e);
     }
 
     protected override async void OnClosed(EventArgs e)
     {
         IsClosing = true; await StopAsync(); base.OnClosed(e);
+    }
+}
+
+
+internal sealed class ChunkedAudioConnection : IAsyncDisposable
+{
+    readonly TcpClient client;
+    readonly Stream stream;
+    bool disposed;
+
+    ChunkedAudioConnection(TcpClient client, Stream stream) { this.client = client; this.stream = stream; }
+
+    public static async Task<ChunkedAudioConnection> ConnectAsync(Uri uri, string key, int sampleRate, int channels, CancellationToken token)
+    {
+        var client = new TcpClient { NoDelay = true };
+        await client.ConnectAsync(uri.Host, uri.Port > 0 ? uri.Port : (uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) ? 443 : 80), token);
+        Stream stream = client.GetStream();
+
+        if (uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
+        {
+            var ssl = new SslStream(stream, false, (_, _, _, errors) => errors == SslPolicyErrors.None);
+            await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+            {
+                TargetHost = uri.Host,
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+            }, token);
+            stream = ssl;
+        }
+
+        var path = string.IsNullOrEmpty(uri.PathAndQuery) ? "/" : uri.PathAndQuery;
+        var headers = new StringBuilder();
+        headers.Append($"POST {path} HTTP/1.1\\r\\n");
+        headers.Append($"Host: {uri.Host}{(uri.IsDefaultPort ? "" : ":" + uri.Port)}\\r\\n");
+        headers.Append("Connection: keep-alive\\r\\n");
+        headers.Append("Content-Type: application/octet-stream\\r\\n");
+        headers.Append("Transfer-Encoding: chunked\\r\\n");
+        headers.Append($"X-USALB-Sample-Rate: {sampleRate}\\r\\n");
+        headers.Append($"X-USALB-Channels: {channels}\\r\\n");
+        if (!string.IsNullOrWhiteSpace(key)) headers.Append($"X-Broadcaster-Token: {key}\\r\\n");
+        headers.Append("\\r\\n");
+
+        var headerBytes = Encoding.ASCII.GetBytes(headers.ToString());
+        await stream.WriteAsync(headerBytes, token);
+        await stream.FlushAsync(token);
+
+        var response = await ReadHeadersAsync(stream, token);
+        if (!response.StartsWith("HTTP/1.1 200", StringComparison.OrdinalIgnoreCase) &&
+            !response.StartsWith("HTTP/1.0 200", StringComparison.OrdinalIgnoreCase))
+        {
+            await stream.DisposeAsync();
+            client.Dispose();
+            throw new InvalidOperationException($"USALB ingest rejected the connection: {response.Split('\\n')[0].Trim()}");
+        }
+
+        return new ChunkedAudioConnection(client, stream);
+    }
+
+    public async Task SendAudioAsync(byte[] pcm, CancellationToken token)
+    {
+        if (disposed) throw new ObjectDisposedException(nameof(ChunkedAudioConnection));
+        var prefix = Encoding.ASCII.GetBytes($"{pcm.Length:X}\\r\\n");
+        await stream.WriteAsync(prefix, token);
+        await stream.WriteAsync(pcm, token);
+        await stream.WriteAsync(new byte[] { 13, 10 }, token);
+        await stream.FlushAsync(token);
+    }
+
+    public void Abort()
+    {
+        try { client.Client.Shutdown(SocketShutdown.Both); } catch { }
+        try { client.Close(); } catch { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (disposed) return;
+        disposed = true;
+        try { await stream.WriteAsync(Encoding.ASCII.GetBytes("0\\r\\n\\r\\n")); } catch { }
+        try { await stream.FlushAsync(); } catch { }
+        try { await stream.DisposeAsync(); } catch { }
+        try { client.Dispose(); } catch { }
+    }
+
+    static async Task<string> ReadHeadersAsync(Stream stream, CancellationToken token)
+    {
+        var buffer = new byte[1];
+        using var data = new MemoryStream();
+        var state = 0;
+        while (data.Length < 16384)
+        {
+            var count = await stream.ReadAsync(buffer, token);
+            if (count == 0) throw new IOException("USALB ingest server closed the connection during handshake.");
+            data.WriteByte(buffer[0]);
+            state = state switch
+            {
+                0 when buffer[0] == 13 => 1,
+                1 when buffer[0] == 10 => 2,
+                2 when buffer[0] == 13 => 3,
+                3 when buffer[0] == 10 => 4,
+                _ => 0
+            };
+            if (state == 4) return Encoding.ASCII.GetString(data.ToArray());
+        }
+        throw new IOException("USALB ingest response headers are too large.");
     }
 }
