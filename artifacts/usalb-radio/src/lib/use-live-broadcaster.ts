@@ -503,9 +503,8 @@ export function useLiveBroadcaster() {
         mp3Processor.onaudioprocess = (event) => {
           const socket = socketRef.current;
           if (!socket || socket.readyState !== WebSocket.OPEN) return;
-          // The network stream is already compressed to 320 kbps MP3. Keep a small
-          // bounded send queue so temporary network jitter cannot create a burst.
-          if (socket.bufferedAmount > 128 * 1024) return;
+          // Keep every encoded MP3 frame. Dropping frames here creates audible
+          // multi-second holes when the WebSocket briefly reports queued bytes.
           const input = event.inputBuffer;
           const left = new Int16Array(graph.mp3LeftPending.length + input.length);
           const right = new Int16Array(graph.mp3RightPending.length + input.length);
