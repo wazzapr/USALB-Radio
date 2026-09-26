@@ -70,7 +70,7 @@ export function stopLiquidsoap(): void {
 
 export function handleLiquidsoapStreamRequest(req: IncomingMessage, res: ServerResponse): boolean {
   const url = new URL(req.url ?? "", `http://${req.headers.host ?? "localhost"}`);
-  if (req.method !== "GET" || url.pathname !== "/api/radio-stream") return false;
+  if (req.method !== "GET" || !["/api/radio-stream", "/api/live/stream", "/api/live/stream-320"].includes(url.pathname)) return false;
 
   if (!liquidsoapRunning()) {
     res.statusCode = 503;
@@ -88,6 +88,7 @@ export function handleLiquidsoapStreamRequest(req: IncomingMessage, res: ServerR
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.setHeader("X-Accel-Buffering", "no");
+    res.socket?.setNoDelay(true);
     res.flushHeaders?.();
 
     listenerCount += 1;
