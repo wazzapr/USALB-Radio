@@ -1,5 +1,5 @@
 #define MyAppName "USALB Broadcaster"
-#define MyAppVersion "1.0.7"
+#define MyAppVersion "1.0.8"
 #define MyAppPublisher "USALB Radio"
 #define MyAppExeName "USALB.Broadcaster.exe"
 
@@ -8,9 +8,9 @@ AppId={{B6C8D2D7-4A4C-4D2D-9B11-8E6D5E6E8A01}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
-VersionInfoVersion=1.0.7.0
-VersionInfoTextVersion=1.0.7
-VersionInfoProductVersion=1.0.7.0
+VersionInfoVersion=1.0.8.0
+VersionInfoTextVersion=1.0.8
+VersionInfoProductVersion=1.0.8.0
 AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\USALB Broadcaster
 DefaultGroupName=USALB Broadcaster
