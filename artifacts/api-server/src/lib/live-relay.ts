@@ -84,8 +84,8 @@ async function attachBroadcaster(socket:WebSocket,token:string|null,req:Incoming
    if(m.type==="start"){
     if(!(m.mimeType?.includes("pcm")||m.codec==="pcm")){sendJson(socket,{type:"error",message:"USALB expects the Windows PCM broadcaster."});return;}
     broadcastMode="pcm";
-    pcmSampleRate=Number.isFinite(m.pcmSampleRate)&&m.pcmSampleRate!>0?Math.round(m.pcmSampleRate!):44100;
-    pcmChannels=Number.isFinite(m.pcmChannels)&&m.pcmChannels!>0?Math.min(2,Math.max(1,Math.round(m.pcmChannels!))):2;
+    pcmSampleRate=Number.isFinite(m.pcmSampleRate)&&Number(m.pcmSampleRate)>0?Math.round(Number(m.pcmSampleRate)):44100;
+    pcmChannels=Number.isFinite(m.pcmChannels)&&Number(m.pcmChannels)>0?Math.min(2,Math.max(1,Math.round(Number(m.pcmChannels)))):2;
     if(!liquidsoapRunning()){sendJson(socket,{type:"error",message:"USALB Liquidsoap is not running."});reset();return;}
     connectFeed();
     if(!feed){sendJson(socket,{type:"error",message:"Could not connect the broadcaster to Liquidsoap."});reset();return;}
