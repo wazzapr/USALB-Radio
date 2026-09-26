@@ -71,11 +71,20 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Read broadcaster version
+        id: version
+        shell: powershell
+        run: |
+          [xml]$project = Get-Content USALBBroadcaster.csproj
+          $version = $project.Project.PropertyGroup.Version
+          if ([string]::IsNullOrWhiteSpace($version)) { throw "Broadcaster version is missing." }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: broadcaster-latest
-          name: USALB Broadcaster Latest
+          name: USALB Broadcaster ${{ steps.version.outputs.version }}
           body: |
             Windows installer and portable build of USALB Broadcaster.
             Existing installations can use CHECK FOR UPDATES for an in-place update.
