@@ -136,8 +136,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: broadcaster-latest
-          name: USALB Broadcaster \${{ steps.version.outputs.version }}
-          body: \${{ steps.release_notes.outputs.body }}
+          name: USALB Broadcaster ${{ steps.version.outputs.version }}
+          body: ${{ steps.release_notes.outputs.body }}
           files: |
             broadcaster/windows/installer-output/USALB-Broadcaster-Setup.exe
             USALB-Broadcaster-Portable.zip
