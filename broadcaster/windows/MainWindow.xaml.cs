@@ -191,6 +191,17 @@ public partial class MainWindow : Window
         StatusText.Text = "Pairing cleared. The broadcaster is offline.";
     }
 
+    static string ParseReleaseVersion(string tag, string releaseName)
+    {
+        var tagMatch = System.Text.RegularExpressions.Regex.Match(tag ?? "", @"\d+\.\d+\.\d+(?:\.\d+)?");
+        if (tagMatch.Success) return tagMatch.Value;
+
+        var nameMatch = System.Text.RegularExpressions.Regex.Match(releaseName ?? "", @"\d+\.\d+\.\d+(?:\.\d+)?");
+        if (nameMatch.Success) return nameMatch.Value;
+
+        return "";
+    }
+
     async void UpdateButton_Click(object sender, RoutedEventArgs e)
     {
         if (running)
@@ -211,11 +222,8 @@ public partial class MainWindow : Window
 
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             var tag = doc.RootElement.GetProperty("tag_name").GetString() ?? "";
-            var remoteVersionText = tag.StartsWith("broadcaster-v", StringComparison.OrdinalIgnoreCase)
-                ? tag["broadcaster-v".Length..]
-                : (doc.RootElement.TryGetProperty("name", out var name)
-                    ? name.GetString()?.Replace("USALB Broadcaster ", "", StringComparison.OrdinalIgnoreCase) ?? ""
-                    : "");
+            var releaseName = doc.RootElement.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "";
+            var remoteVersionText = ParseReleaseVersion(tag, releaseName);
 
             if (!Version.TryParse(remoteVersionText, out var remoteVersion))
                 throw new InvalidOperationException("The update server returned an invalid broadcaster version.");
@@ -317,9 +325,7 @@ public partial class MainWindow : Window
             var tag = doc.RootElement.GetProperty("tag_name").GetString() ?? "";
             var releaseName = doc.RootElement.TryGetProperty("name", out var name) ? name.GetString() ?? "USALB Broadcaster" : "USALB Broadcaster";
             var body = doc.RootElement.TryGetProperty("body", out var bodyElement) ? bodyElement.GetString() ?? "" : "";
-            var remoteVersionText = tag.StartsWith("broadcaster-v", StringComparison.OrdinalIgnoreCase)
-                ? tag["broadcaster-v".Length..]
-                : releaseName.Replace("USALB Broadcaster ", "", StringComparison.OrdinalIgnoreCase).Trim();
+            var remoteVersionText = ParseReleaseVersion(tag, releaseName);
             var localVersion = GetType().Assembly.GetName().Version ?? new Version(0, 0, 0);
 
             if (string.IsNullOrWhiteSpace(body))
