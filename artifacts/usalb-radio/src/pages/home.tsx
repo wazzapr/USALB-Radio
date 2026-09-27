@@ -94,9 +94,38 @@ export default function Home() {
     try {
       const audio = audioRef.current;
       if (!audio) throw new Error("The radio player is not ready yet.");
-      audio.src = "/api/radio-stream";
+
+      const streamUrl = status?.streamUrl || station?.streamUrl || "/api/radio-stream";
+      const separator = streamUrl.includes("?") ? "&" : "?";
+      audio.src = `${streamUrl}${separator}app-live=${Date.now()}`;
       audio.preload = "none";
       audio.volume = muted ? 0 : volume;
+
+      audio.onplaying = () => {
+        setPlaying(true);
+        setLoading(false);
+        setReconnecting(false);
+        setError("");
+        reconnectAttemptRef.current = 0;
+        if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
+      };
+      audio.onwaiting = () => {
+        if (shouldReconnectRef.current) setReconnecting(true);
+      };
+      audio.onstalled = () => {
+        if (shouldReconnectRef.current) {
+          window.setTimeout(() => {
+            if (shouldReconnectRef.current && audio.readyState < 3) scheduleReconnect();
+          }, 5000);
+        }
+      };
+      audio.onended = () => {
+        if (shouldReconnectRef.current) scheduleReconnect();
+      };
+      audio.onerror = () => {
+        if (shouldReconnectRef.current) scheduleReconnect();
+      };
+
       await audio.play();
       setPlaying(true);
       setLoading(false);
