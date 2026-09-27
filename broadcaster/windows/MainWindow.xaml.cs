@@ -180,7 +180,7 @@ public partial class MainWindow : Window
         if (running) { await StopAsync(); return; }
         try { await StartAsync(); }
         catch (OperationCanceledException) { if (!IsLoaded) return; await StopAsync(); }
-        catch (Exception ex) { StatusText.Text = "CONNECTION ERROR: " + ex.GetBaseException().Message; LiveStateText.Text = "ERROR"; await StopAsync(); }
+        catch (Exception ex) { var message = "CONNECTION ERROR: " + ex.GetBaseException().Message; try { await StopAsync(); } catch { } StatusText.Text = message; LiveStateText.Text = "ERROR"; }
     }
 
     async Task StartAsync()
@@ -202,6 +202,8 @@ public partial class MainWindow : Window
         var port = baseUri.IsDefaultPort ? "" : ":" + baseUri.Port;
         liveIngestUri = new Uri($"{baseUri.Scheme}://{baseUri.Host}{port}/api/live/ingest");
         liveKey = KeyBox.Password.Trim();
+        if (string.IsNullOrWhiteSpace(liveKey))
+            throw new InvalidOperationException("Broadcaster key is empty. Enter the private publish key from USALB pairing before pressing GO LIVE.");
 
         StatusText.Text = "Connecting to USALB…";
         try
@@ -471,8 +473,14 @@ internal sealed class ChunkedAudioConnection : IAsyncDisposable
 
     public static async Task<ChunkedAudioConnection> ConnectAsync(Uri uri, string key, int sampleRate, int channels, CancellationToken token)
     {
+        using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        handshakeCts.CancelAfter(TimeSpan.FromSeconds(12));
+        var handshakeToken = handshakeCts.Token;
+
         var client = new TcpClient { NoDelay = true };
-        await client.ConnectAsync(uri.Host, uri.Port > 0 ? uri.Port : (uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) ? 443 : 80), token);
+        try
+        {
+            await client.ConnectAsync(uri.Host, uri.Port > 0 ? uri.Port : (uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) ? 443 : 80), handshakeToken);
         Stream stream = client.GetStream();
 
         if (uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
@@ -482,7 +490,7 @@ internal sealed class ChunkedAudioConnection : IAsyncDisposable
             {
                 TargetHost = uri.Host,
                 EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
-            }, token);
+            }, handshakeToken);
             stream = ssl;
         }
 
@@ -499,10 +507,22 @@ internal sealed class ChunkedAudioConnection : IAsyncDisposable
         headers.Append("\r\n");
 
         var headerBytes = Encoding.ASCII.GetBytes(headers.ToString());
-        await stream.WriteAsync(headerBytes, token);
-        await stream.FlushAsync(token);
+        await stream.WriteAsync(headerBytes, handshakeToken);
+        await stream.FlushAsync(handshakeToken);
 
-        var response = await ReadHeadersAsync(stream, token);
+        // Send one silent PCM frame immediately. Some HTTP reverse proxies do not
+        // forward a chunked POST upstream until request body data arrives. Without
+        // this, the broadcaster can wait forever for the server handshake response.
+        var firstPcm = new byte[(sampleRate * channels * 20 / 1000) * 2];
+        var firstChunkLength = 4 + firstPcm.Length;
+        var firstPrefix = Encoding.ASCII.GetBytes($"{firstChunkLength:X}\r\n");
+        await stream.WriteAsync(firstPrefix, handshakeToken);
+        await stream.WriteAsync(new byte[] { 0x50, 0x43, 0x4d, 0x31 }, handshakeToken);
+        await stream.WriteAsync(firstPcm, handshakeToken);
+        await stream.WriteAsync(new byte[] { 13, 10 }, handshakeToken);
+        await stream.FlushAsync(handshakeToken);
+
+        var response = await ReadHeadersAsync(stream, handshakeToken);
         if (!response.StartsWith("HTTP/1.1 200", StringComparison.OrdinalIgnoreCase) &&
             !response.StartsWith("HTTP/1.0 200", StringComparison.OrdinalIgnoreCase))
         {
@@ -512,6 +532,17 @@ internal sealed class ChunkedAudioConnection : IAsyncDisposable
         }
 
         return new ChunkedAudioConnection(client, stream);
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            try { client.Dispose(); } catch { }
+            throw new TimeoutException("USALB connection timed out after 12 seconds. The server/proxy did not complete the broadcaster handshake.");
+        }
+        catch
+        {
+            try { client.Dispose(); } catch { }
+            throw;
+        }
     }
 
     public async Task SendAudioAsync(byte[] pcm, CancellationToken token)
