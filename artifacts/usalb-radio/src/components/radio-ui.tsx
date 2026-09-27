@@ -70,26 +70,14 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wantedToPlayRef = useRef(false);
   const currentStreamUrlRef = useRef<string | undefined>(undefined);
-  const fetchAbortRef = useRef<AbortController | null>(null);
-  const mediaSourceRef = useRef<MediaSource | null>(null);
-  const mediaObjectUrlRef = useRef<string | null>(null);
-  const sourceBufferRef = useRef<SourceBuffer | null>(null);
-  const pendingChunksRef = useRef<Uint8Array[]>([]);
-  const pendingBytesRef = useRef(0);
-  const appendBusyRef = useRef(false);
-  const initialBufferReadyRef = useRef(false);
-  const initialBytesRemainingRef = useRef(0);
   const [playing, setPlaying] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [volume, setVolume] = useState(0.78);
   const [audioError, setAudioError] = useState(false);
+
   const streamUrl = status?.streamUrl || station?.streamUrl;
   const state = status?.state ?? 'OFFLINE';
   const unavailable = !streamUrl || state === 'OFFLINE';
-
-  // Deliberately trade live latency for a large playback cushion. At 320 kbps
-  // this is roughly 400 KB of compressed MP3 before playback starts.
-  const TARGET_BUFFER_BYTES = 10 * 320000 / 8;
 
   const clearReconnectTimer = () => {
     if (reconnectTimerRef.current) {
@@ -98,205 +86,18 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
     }
   };
 
-  const cleanupBufferedStream = () => {
-    fetchAbortRef.current?.abort();
-    fetchAbortRef.current = null;
-    sourceBufferRef.current = null;
-    pendingChunksRef.current = [];
-    pendingBytesRef.current = 0;
-    appendBusyRef.current = false;
-    initialBufferReadyRef.current = false;
-    initialBytesRemainingRef.current = 0;
-
-    if (mediaObjectUrlRef.current) {
-      URL.revokeObjectURL(mediaObjectUrlRef.current);
-      mediaObjectUrlRef.current = null;
-    }
-    mediaSourceRef.current = null;
-  };
-
   const buildFreshUrl = (url: string) => {
     const separator = url.includes('?') ? '&' : '?';
-    return `${url}${separator}live=${Date.now()}`;
+    return `${url}${separator}app-live=${Date.now()}`;
   };
 
-  const connectNative = async (url: string) => {
-    const audio = audioRef.current || new Audio();
-    audioRef.current = audio;
-    currentStreamUrlRef.current = url;
-    audio.src = buildFreshUrl(url);
-    audio.preload = 'none';
-    audio.volume = volume;
-
-    audio.onplaying = () => {
-      setConnecting(false);
-      setPlaying(true);
-      setAudioError(false);
-    };
-
-    audio.onpause = () => {
-      if (wantedToPlayRef.current) {
-        setPlaying(false);
-        setConnecting(true);
-      } else {
-        setPlaying(false);
-      }
-    };
-
-    audio.onended = () => {
-      if (wantedToPlayRef.current) {
-        setPlaying(false);
-        setConnecting(true);
-        reconnectTimerRef.current = setTimeout(() => void connect(url), 1500);
-      }
-    };
-
-    audio.onerror = () => {
-      if (!wantedToPlayRef.current) return;
-      setPlaying(false);
-      setConnecting(true);
-      setAudioError(true);
-      reconnectTimerRef.current = setTimeout(() => void connect(url), 3000);
-    };
-
-    try {
-      audio.load();
-      await audio.play();
-    } catch {
-      if (!wantedToPlayRef.current) return;
-      setConnecting(true);
-      setAudioError(true);
-      reconnectTimerRef.current = setTimeout(() => void connect(url), 3000);
-    }
-  };
-
-  const pumpSourceBuffer = () => {
-    const sourceBuffer = sourceBufferRef.current;
-    if (!sourceBuffer || sourceBuffer.updating || appendBusyRef.current) return;
-    const next = pendingChunksRef.current.shift();
-    if (!next) return;
-    appendBusyRef.current = true;
-    pendingBytesRef.current = Math.max(0, pendingBytesRef.current - next.byteLength);
-    if (initialBufferReadyRef.current) initialBytesRemainingRef.current = Math.max(0, initialBytesRemainingRef.current - next.byteLength);
-    try {
-      const appendable = new Uint8Array(next.byteLength);
-      appendable.set(next);
-      sourceBuffer.appendBuffer(appendable.buffer);
-    } catch {
-      appendBusyRef.current = false;
-      pendingChunksRef.current.unshift(next);
-      pendingBytesRef.current += next.byteLength;
-      if (initialBufferReadyRef.current) initialBytesRemainingRef.current += next.byteLength;
-      return;
-    }
-    sourceBuffer.addEventListener('updateend', () => {
-      appendBusyRef.current = false;
-      if (initialBufferReadyRef.current && initialBytesRemainingRef.current === 0 && wantedToPlayRef.current) {
-        const audio = audioRef.current;
-        if (audio && audio.paused) void audio.play().catch(() => {});
-      }
-      pumpSourceBuffer();
-    }, { once: true });
-  };
-
-  const connectBuffered = async (url: string) => {
-    const audio = audioRef.current || new Audio();
-    audioRef.current = audio;
-    currentStreamUrlRef.current = url;
-    cleanupBufferedStream();
-
-    if (!('MediaSource' in window) || !MediaSource.isTypeSupported('audio/mpeg')) {
-      await connectNative(url);
-      return;
-    }
-
-    const mediaSource = new MediaSource();
-    mediaSourceRef.current = mediaSource;
-    const objectUrl = URL.createObjectURL(mediaSource);
-    mediaObjectUrlRef.current = objectUrl;
-    audio.src = objectUrl;
-    audio.preload = 'auto';
-    audio.volume = volume;
-
-    audio.onplaying = () => {
-      setConnecting(false);
-      setPlaying(true);
-      setAudioError(false);
-    };
-    audio.onpause = () => {
-      if (wantedToPlayRef.current) {
-        setPlaying(false);
-        setConnecting(true);
-      } else {
-        setPlaying(false);
-      }
-    };
-    audio.onended = () => {
-      if (wantedToPlayRef.current) {
-        setPlaying(false);
-        setConnecting(true);
-        reconnectTimerRef.current = setTimeout(() => void connect(url), 1500);
-      }
-    };
-    audio.onerror = () => {
-      if (!wantedToPlayRef.current) return;
-      setPlaying(false);
-      setConnecting(true);
-      setAudioError(true);
-      reconnectTimerRef.current = setTimeout(() => void connect(url), 3000);
-    };
-
-    const abort = new AbortController();
-    fetchAbortRef.current = abort;
-
-    try {
-      const response = await fetch(buildFreshUrl(url), {
-        cache: 'no-store',
-        signal: abort.signal,
-        headers: { Accept: 'audio/mpeg' },
-      });
-      if (!response.ok || !response.body) throw new Error('Live stream unavailable');
-
-      await new Promise<void>((resolve, reject) => {
-        mediaSource.addEventListener('sourceopen', () => {
-          try {
-            const sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
-            sourceBuffer.mode = 'sequence';
-            sourceBufferRef.current = sourceBuffer;
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
-        }, { once: true });
-        mediaSource.addEventListener('error', () => reject(new Error('MediaSource error')), { once: true });
-      });
-
-      const reader = response.body.getReader();
-      while (wantedToPlayRef.current) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!value || value.byteLength === 0) continue;
-
-        const copy = new Uint8Array(value);
-        pendingChunksRef.current.push(copy);
-        pendingBytesRef.current += copy.byteLength;
-
-        if (!initialBufferReadyRef.current && pendingBytesRef.current >= TARGET_BUFFER_BYTES) {
-          initialBufferReadyRef.current = true;
-          initialBytesRemainingRef.current = pendingBytesRef.current;
-        }
-
-        pumpSourceBuffer();
-      }
-
-      if (wantedToPlayRef.current) throw new Error('Live stream ended');
-    } catch (error) {
-      if (!wantedToPlayRef.current || abort.signal.aborted) return;
-      setPlaying(false);
-      setConnecting(true);
-      setAudioError(true);
-      reconnectTimerRef.current = setTimeout(() => void connect(url), 3000);
-    }
+  const scheduleReconnect = (url: string, delay = 1500) => {
+    clearReconnectTimer();
+    if (!wantedToPlayRef.current) return;
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+      void connect(url);
+    }, delay);
   };
 
   const connect = async (url: string) => {
@@ -307,20 +108,77 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
     setConnecting(true);
     setPlaying(false);
 
-    // Chromium-based browsers and modern mobile browsers use a real MSE
-    // playback buffer. The native element remains the compatibility fallback.
-    await connectBuffered(url);
+    const audio = audioRef.current || new Audio();
+    audioRef.current = audio;
+    currentStreamUrlRef.current = url;
+    audio.src = buildFreshUrl(url);
+    audio.preload = 'none';
+    audio.volume = volume;
+    audio.autoplay = false;
+
+    audio.onplaying = () => {
+      setConnecting(false);
+      setPlaying(true);
+      setAudioError(false);
+    };
+
+    audio.onwaiting = () => {
+      if (wantedToPlayRef.current) setConnecting(true);
+    };
+
+    audio.onstalled = () => {
+      if (wantedToPlayRef.current) setConnecting(true);
+    };
+
+    audio.onpause = () => {
+      if (wantedToPlayRef.current && !audio.ended) {
+        setPlaying(false);
+        setConnecting(true);
+      } else {
+        setPlaying(false);
+      }
+    };
+
+    audio.onended = () => {
+      if (!wantedToPlayRef.current) return;
+      setPlaying(false);
+      setConnecting(true);
+      scheduleReconnect(url, 800);
+    };
+
+    audio.onerror = () => {
+      if (!wantedToPlayRef.current) return;
+      setPlaying(false);
+      setConnecting(true);
+      setAudioError(true);
+      scheduleReconnect(url, 2000);
+    };
+
+    try {
+      audio.load();
+      await audio.play();
+    } catch {
+      if (!wantedToPlayRef.current) return;
+      setPlaying(false);
+      setConnecting(false);
+      setAudioError(true);
+    }
   };
 
   useEffect(() => {
-    if (!audioRef.current) audioRef.current = new Audio();
-    audioRef.current.volume = volume;
+    if (!audioRef.current) {
+      const audio = new Audio();
+      audio.preload = 'none';
+      audio.volume = volume;
+      audioRef.current = audio;
+    }
 
     return () => {
       wantedToPlayRef.current = false;
       clearReconnectTimer();
-      cleanupBufferedStream();
       audioRef.current?.pause();
+      audioRef.current?.removeAttribute('src');
+      audioRef.current?.load();
       audioRef.current = null;
     };
   }, []);
@@ -336,19 +194,13 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
     }
   }, [streamUrl]);
 
-  useEffect(() => {
-    if (!wantedToPlayRef.current || !streamUrl || unavailable) return;
-    if (!playing && !connecting && !reconnectTimerRef.current) {
-      reconnectTimerRef.current = setTimeout(() => void connect(streamUrl), 3000);
-    }
-  }, [status?.isLive, state, streamUrl, unavailable, playing, connecting]);
-
   const toggle = async () => {
     if (wantedToPlayRef.current) {
       wantedToPlayRef.current = false;
       clearReconnectTimer();
-      cleanupBufferedStream();
       audioRef.current?.pause();
+      audioRef.current?.removeAttribute('src');
+      audioRef.current?.load();
       setConnecting(false);
       setPlaying(false);
       setAudioError(false);
@@ -361,16 +213,17 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
   };
 
   const retry = () => {
+    if (!streamUrl) return;
     wantedToPlayRef.current = true;
-    void connect(streamUrl || currentStreamUrlRef.current || '');
+    void connect(streamUrl);
   };
 
-  const label = audioError && connecting
-    ? 'Reconnecting to live stream'
+  const label = audioError
+    ? 'Signal interrupted — tap to retry'
     : connecting
-      ? 'Buffering live stream'
+      ? 'Connecting to live radio'
       : playing
-        ? 'Pause live stream'
+        ? 'You are listening'
         : unavailable
           ? 'Live stream unavailable'
           : 'Listen live';
@@ -385,16 +238,18 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
           className={`grid size-16 shrink-0 place-items-center rounded-full border-4 border-background text-background shadow-[0_0_0_1px_hsl(var(--primary)/.3)] transition-transform active:scale-95 ${(!streamUrl && !audioError) ? 'cursor-not-allowed bg-muted-foreground/40' : 'bg-secondary hover:scale-105'}`}
           data-testid="button-live-player"
         >
-          {audioError || connecting
-            ? <Wifi size={24} className="animate-pulse" />
-            : playing
-              ? <Pause size={25} fill="currentColor" />
-              : <Play size={26} fill="currentColor" className="ml-1" />}
+          {audioError
+            ? <RotateCcw size={24} className="animate-pulse" />
+            : connecting
+              ? <Wifi size={24} className="animate-pulse" />
+              : playing
+                ? <Pause size={25} fill="currentColor" />
+                : <Play size={26} fill="currentColor" className="ml-1" />}
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">
-              {connecting ? 'Buffering the signal' : playing ? 'You are listening' : audioError ? 'Signal interrupted' : 'Ready when you are'}
+              {connecting ? 'Connecting to the station' : playing ? 'You are listening' : audioError ? 'Signal interrupted' : 'Ready when you are'}
             </span>
             {playing && <div className="equalizer flex h-6 items-end gap-1 text-secondary" aria-hidden="true"><span /><span /><span /><span /></div>}
           </div>
@@ -406,11 +261,12 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
           <input type="range" min="0" max="1" step=".01" value={volume} onChange={(e) => setVolume(Number(e.target.value))} className="w-20 accent-primary" aria-label="Volume" data-testid="input-volume" />
         </label>
       </div>
-      {audioError && <p className="rounded-xl bg-destructive/10 px-3 py-2 text-xs text-destructive" data-testid="text-player-error">The player lost the signal and is automatically trying to reconnect.</p>}
-      {!status?.isLive && !playing && !connecting && <p className="text-xs text-muted-foreground">The station will appear here when the broadcaster connects. The player will reconnect automatically if the signal returns.</p>}
+      {audioError && <p className="rounded-xl bg-destructive/10 px-3 py-2 text-xs text-destructive" data-testid="text-player-error">The player lost the signal. Press the button to reconnect.</p>}
+      {!status?.isLive && !playing && !connecting && <p className="text-xs text-muted-foreground">The station will appear here when the broadcaster connects.</p>}
     </div>
   );
 }
+
 export function StationHeader({ station, admin = false }: { station?: Station; admin?: boolean }) {
   return (
     <header className="flex items-center justify-between gap-4">
