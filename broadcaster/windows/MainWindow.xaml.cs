@@ -22,7 +22,7 @@ public partial class MainWindow : Window
     readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(5) };
     readonly DispatcherTimer monitorTimer = new() { Interval = TimeSpan.FromSeconds(3) };
 
-    ChunkedAudioConnection? audioConnection;
+    PcmWebSocketConnection? audioConnection;
     WasapiLoopbackCapture? loopback;
     WaveInEvent? microphone;
     BufferedWaveProvider? musicBuffer;
@@ -603,137 +603,88 @@ public partial class MainWindow : Window
 }
 
 
-internal sealed class ChunkedAudioConnection : IAsyncDisposable
+internal sealed class PcmWebSocketConnection : IAsyncDisposable
 {
-    readonly TcpClient client;
-    readonly Stream stream;
+    readonly ClientWebSocket socket;
     bool disposed;
 
-    ChunkedAudioConnection(TcpClient client, Stream stream) { this.client = client; this.stream = stream; }
+    PcmWebSocketConnection(ClientWebSocket socket) { this.socket = socket; }
 
-    public static async Task<ChunkedAudioConnection> ConnectAsync(Uri uri, string key, int sampleRate, int channels, CancellationToken token)
+    public static async Task<PcmWebSocketConnection> ConnectAsync(Uri uri, string key, int sampleRate, int channels, CancellationToken token)
     {
-        using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-        handshakeCts.CancelAfter(TimeSpan.FromSeconds(12));
-        var handshakeToken = handshakeCts.Token;
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(12));
+        var ws = new ClientWebSocket();
+        ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 
-        var client = new TcpClient { NoDelay = true };
         try
         {
-            await client.ConnectAsync(uri.Host, uri.Port > 0 ? uri.Port : (uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) ? 443 : 80), handshakeToken);
-        Stream stream = client.GetStream();
+            await ws.ConnectAsync(uri, timeoutCts.Token);
 
-        if (uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
-        {
-            var ssl = new SslStream(stream, false, (_, _, _, errors) => errors == SslPolicyErrors.None);
-            await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+            var start = JsonSerializer.Serialize(new
             {
-                TargetHost = uri.Host,
-                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
-            }, handshakeToken);
-            stream = ssl;
-        }
+                type = "start",
+                mimeType = "audio/pcm",
+                codec = "pcm",
+                pcmSampleRate = sampleRate,
+                pcmChannels = channels
+            });
+            var startBytes = Encoding.UTF8.GetBytes(start);
+            await ws.SendAsync(startBytes, WebSocketMessageType.Text, true, timeoutCts.Token);
 
-        var path = string.IsNullOrEmpty(uri.PathAndQuery) ? "/" : uri.PathAndQuery;
-        var headers = new StringBuilder();
-        headers.Append($"POST {path} HTTP/1.1\r\n");
-        headers.Append($"Host: {uri.Host}{(uri.IsDefaultPort ? "" : ":" + uri.Port)}\r\n");
-        headers.Append("Connection: keep-alive\r\n");
-        headers.Append("Content-Type: application/octet-stream\r\n");
-        headers.Append("Transfer-Encoding: chunked\r\n");
-        headers.Append($"X-USALB-Sample-Rate: {sampleRate}\r\n");
-        headers.Append($"X-USALB-Channels: {channels}\r\n");
-        if (!string.IsNullOrWhiteSpace(key)) headers.Append($"X-Broadcaster-Token: {key}\r\n");
-        headers.Append("\r\n");
+            var buffer = new byte[4096];
+            var result = await ws.ReceiveAsync(buffer.AsMemory(), timeoutCts.Token);
+            if (result.MessageType == WebSocketMessageType.Close)
+                throw new IOException("USALB live relay closed the broadcaster connection.");
 
-        var headerBytes = Encoding.ASCII.GetBytes(headers.ToString());
-        await stream.WriteAsync(headerBytes, handshakeToken);
-        await stream.FlushAsync(handshakeToken);
+            var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
+            if (!message.Contains(""type":"ready"", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"USALB live relay rejected the broadcaster: {message}");
+            }
 
-        // Send one silent PCM frame immediately. Some HTTP reverse proxies do not
-        // forward a chunked POST upstream until request body data arrives. Without
-        // this, the broadcaster can wait forever for the server handshake response.
-        var firstPcm = new byte[(sampleRate * channels * 20 / 1000) * 2];
-        var firstChunkLength = 4 + firstPcm.Length;
-        var firstPrefix = Encoding.ASCII.GetBytes($"{firstChunkLength:X}\r\n");
-        await stream.WriteAsync(firstPrefix, handshakeToken);
-        await stream.WriteAsync(new byte[] { 0x50, 0x43, 0x4d, 0x31 }, handshakeToken);
-        await stream.WriteAsync(firstPcm, handshakeToken);
-        await stream.WriteAsync(new byte[] { 13, 10 }, handshakeToken);
-        await stream.FlushAsync(handshakeToken);
-
-        var response = await ReadHeadersAsync(stream, handshakeToken);
-        if (!response.StartsWith("HTTP/1.1 200", StringComparison.OrdinalIgnoreCase) &&
-            !response.StartsWith("HTTP/1.0 200", StringComparison.OrdinalIgnoreCase))
-        {
-            await stream.DisposeAsync();
-            client.Dispose();
-            throw new InvalidOperationException($"USALB ingest rejected the connection: {response.Split('\n')[0].Trim()}");
-        }
-
-        return new ChunkedAudioConnection(client, stream);
+            return new PcmWebSocketConnection(ws);
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
-            try { client.Dispose(); } catch { }
-            throw new TimeoutException("USALB connection timed out after 12 seconds. The server/proxy did not complete the broadcaster handshake.");
+            ws.Dispose();
+            throw new TimeoutException("USALB broadcaster WebSocket connection timed out after 12 seconds.");
         }
         catch
         {
-            try { client.Dispose(); } catch { }
+            ws.Dispose();
             throw;
         }
     }
 
     public async Task SendAudioAsync(byte[] pcm, CancellationToken token)
     {
-        if (disposed) throw new ObjectDisposedException(nameof(ChunkedAudioConnection));
-        const int magicLength = 4;
-        var chunkLength = magicLength + pcm.Length;
-        var prefix = Encoding.ASCII.GetBytes($"{chunkLength:X}\r\n");
-        await stream.WriteAsync(prefix, token);
-        await stream.WriteAsync(new byte[] { 0x50, 0x43, 0x4d, 0x31 }, token);
-        await stream.WriteAsync(pcm, token);
-        await stream.WriteAsync(new byte[] { 13, 10 }, token);
-        await stream.FlushAsync(token);
+        if (disposed) throw new ObjectDisposedException(nameof(PcmWebSocketConnection));
+        var packet = new byte[4 + pcm.Length];
+        packet[0] = 0x50;
+        packet[1] = 0x43;
+        packet[2] = 0x4d;
+        packet[3] = 0x31;
+        Buffer.BlockCopy(pcm, 0, packet, 4, pcm.Length);
+        await socket.SendAsync(packet.AsMemory(), WebSocketMessageType.Binary, true, token);
     }
 
     public void Abort()
     {
-        try { client.Client.Shutdown(SocketShutdown.Both); } catch { }
-        try { client.Close(); } catch { }
+        try { socket.Abort(); } catch { }
+        try { socket.Dispose(); } catch { }
     }
 
     public async ValueTask DisposeAsync()
     {
         if (disposed) return;
         disposed = true;
-        try { await stream.WriteAsync(Encoding.ASCII.GetBytes("0\r\n\r\n")); } catch { }
-        try { await stream.FlushAsync(); } catch { }
-        try { await stream.DisposeAsync(); } catch { }
-        try { client.Dispose(); } catch { }
-    }
-
-    static async Task<string> ReadHeadersAsync(Stream stream, CancellationToken token)
-    {
-        var buffer = new byte[1];
-        using var data = new MemoryStream();
-        var state = 0;
-        while (data.Length < 16384)
+        try
         {
-            var count = await stream.ReadAsync(buffer, token);
-            if (count == 0) throw new IOException("USALB ingest server closed the connection during handshake.");
-            data.WriteByte(buffer[0]);
-            state = state switch
-            {
-                0 when buffer[0] == 13 => 1,
-                1 when buffer[0] == 10 => 2,
-                2 when buffer[0] == 13 => 3,
-                3 when buffer[0] == 10 => 4,
-                _ => 0
-            };
-            if (state == 4) return Encoding.ASCII.GetString(data.ToArray());
+            if (socket.State == WebSocketState.Open)
+                await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Broadcast stopped", CancellationToken.None);
         }
-        throw new IOException("USALB ingest response headers are too large.");
+        catch { }
+        socket.Dispose();
     }
 }
