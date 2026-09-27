@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Activity, Check, CircleAlert, ExternalLink, Save, Trash2, X } from 'lucide-react';
+import { Activity, Check, CircleAlert, Download, ExternalLink, Save, Trash2, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import {
   getGetAdminDiagnosticsQueryKey,
+  getGetBroadcasterConnectionQueryKey,
   getGetChatQueryKey,
   getGetListenersQueryKey,
   getGetNowPlayingQueryKey,
@@ -11,6 +12,7 @@ import {
   getGetStreamStatusQueryKey,
   useDeleteAdminChatMessage,
   useGetAdminDiagnostics,
+  useGetBroadcasterConnection,
   useGetChat,
   useGetListeners,
   useGetNowPlaying,
@@ -20,7 +22,7 @@ import {
   useUpdateAdminNowPlaying,
   useUpdateAdminSettings,
 } from '@workspace/api-client-react';
-import type { ChatMessage, Diagnostics, NowPlaying, Station, StreamStatus } from '@workspace/api-client-react';
+import type { BroadcasterConnection, ChatMessage, Diagnostics, NowPlaying, Station, StreamStatus } from '@workspace/api-client-react';
 import { ErrorPanel, SectionLabel, StationHeader, StatusBadge, TrackArtwork, formatAgo, formatDuration, formatTime } from '@/components/radio-ui';
 
 const inputClass = 'mt-2 w-full rounded-xl border border-input bg-background px-3.5 py-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-primary';
@@ -33,6 +35,33 @@ function SignalCard({ status, listeners }: { status?: StreamStatus; listeners?: 
   const state = status?.state ?? 'OFFLINE';
   const heartbeat = formatAgo(status?.lastHeartbeat);
   return <section className="rounded-3xl border border-border bg-card p-5 sm:p-6" data-testid="card-signal-status"><SectionLabel right={heartbeat}>Signal telemetry</SectionLabel><div className="flex flex-wrap items-end justify-between gap-4"><div><StatusBadge status={status} /><p className="mt-4 text-3xl font-bold tracking-tight">{state === 'LIVE' ? 'Broadcasting' : state === 'CONNECTING' ? 'Waiting for source' : state === 'RECONNECTING' ? 'Finding source' : 'Off air'}</p><p className="mt-1 text-sm text-muted-foreground">{status?.broadcasterConnected ? 'Broadcaster connected' : 'No broadcaster connection'}</p></div><div className="grid grid-cols-2 gap-3 text-right"><div><p className="font-mono text-2xl text-primary">{listeners ?? status?.listenerCount ?? '—'}</p><p className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">listeners</p></div><div><p className="font-mono text-2xl text-secondary">{formatDuration(status?.uptimeSeconds)}</p><p className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">uptime</p></div></div></div><div className="mt-6 grid grid-cols-3 gap-2 border-t border-border pt-4 text-xs text-muted-foreground"><span>{status?.bitrateKbps ? `${status.bitrateKbps} kbps` : 'Bitrate —'}</span><span className="text-center">{status?.sampleRate ? `${status.sampleRate} Hz` : 'Sample —'}</span><span className="text-right">{status?.contentType || 'Format —'}</span></div></section>;
+}
+
+const BROADCASTER_INSTALLER_URL = 'https://github.com/wazzapr/USALB-Radio/releases/download/broadcaster-latest/USALB-Broadcaster-Setup.exe';
+const BROADCASTER_PORTABLE_URL = 'https://github.com/wazzapr/USALB-Radio/releases/download/broadcaster-latest/USALB-Broadcaster-Portable.zip';
+
+function BroadcasterDownloadPanel() {
+  const connection = useGetBroadcasterConnection({ query: { queryKey: getGetBroadcasterConnectionQueryKey(), refetchInterval: 30000 } });
+  const details: BroadcasterConnection | undefined = connection.data;
+  return <section className="rounded-3xl border border-border bg-card p-5 sm:p-6" data-testid="panel-broadcaster-download">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <SectionLabel right="Windows app">Broadcaster setup</SectionLabel>
+        <h2 className="mt-2 text-2xl font-bold tracking-tight">Download the USALB broadcaster.</h2>
+        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Install the native Windows app, enter the private broadcaster key from pairing, then press GO LIVE. It captures Windows system audio and sends it to the public relay.</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <a href={BROADCASTER_INSTALLER_URL} download className="flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90" data-testid="link-download-broadcaster-installer"><Download size={16} /> Windows installer</a>
+        <a href={BROADCASTER_PORTABLE_URL} download className="flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-3 text-sm font-semibold hover:border-primary/50 hover:text-primary" data-testid="link-download-broadcaster-portable">Portable ZIP</a>
+      </div>
+    </div>
+    <div className="mt-5 grid gap-3 border-t border-border pt-5 sm:grid-cols-3">
+      <div><p className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">Server</p><p className="mt-1 break-all text-sm font-semibold">{details?.serverAddress || 'Loading server details…'}</p></div>
+      <div><p className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">Broadcaster connection</p><p className="mt-1 break-all text-sm font-semibold">{details?.publishEndpoint || 'Loading connection details…'}</p></div>
+      <div><p className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">Public listener stream</p><p className="mt-1 break-all text-sm font-semibold">{details?.publicStreamEndpoint || 'Loading stream details…'}</p></div>
+    </div>
+    <p className="mt-4 rounded-2xl bg-muted/45 px-4 py-3 text-xs leading-relaxed text-muted-foreground">Pairing credentials are not displayed here. Use the existing pairing flow in the broadcaster, keep the private key secret, and use the public station homepage for listeners.</p>
+  </section>;
 }
 
 function SettingsForm({ station }: { station?: Station }) {
@@ -75,7 +104,33 @@ function AdminConsole() {
   const listeners = useGetListeners({ query: { queryKey: getGetListenersQueryKey(), refetchInterval: 10000 } });
   const chat = useGetChat({ query: { queryKey: getGetChatQueryKey(), refetchInterval: 12000 } });
   const diagnostics = useGetAdminDiagnostics({ query: { queryKey: getGetAdminDiagnosticsQueryKey(), refetchInterval: 15000 } });
-  return <main className="noise min-h-[100dvh] station-grid"><div className="mx-auto max-w-[1420px] px-5 pb-12 pt-5 sm:px-8 lg:px-12"><StationHeader admin /><div className="mt-10 flex flex-col gap-4 border-b border-border pb-7 sm:flex-row sm:items-end sm:justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-primary">Open station operations</p><h1 className="mt-2 text-4xl font-bold tracking-[-.06em] sm:text-5xl">The control room.</h1><p className="mt-2 text-muted-foreground">Watch the signal. Keep the room moving.</p></div></div>{(station.isError || status.isError) && <div className="mt-6"><ErrorPanel title="Control room signal issue" detail="Some station telemetry could not be loaded." onRetry={() => { void station.refetch(); void status.refetch(); }} /></div>}<div className="mt-7 grid gap-6 xl:grid-cols-[1.1fr_.9fr]"><div className="space-y-6"><SignalCard status={status.data} listeners={listeners.data?.count} /><div className="grid gap-6 md:grid-cols-2"><NowPlayingForm track={nowPlaying.data} /><Diagnostics data={diagnostics.data} /></div></div><div className="space-y-6"><SettingsForm station={station.data} /><Moderation messages={chat.data || []} /></div></div><footer className="mt-10 flex items-center justify-between border-t border-border pt-6"><Link href="/" className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-primary" data-testid="link-preview-station"><ExternalLink size={13} /> View public station</Link><span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">USALB / open control room</span></footer></div></main>;
+  return <main className="noise min-h-[100dvh] station-grid">
+    <div className="mx-auto max-w-[1420px] px-5 pb-12 pt-5 sm:px-8 lg:px-12">
+      <StationHeader admin />
+      <div className="mt-10 flex flex-col gap-4 border-b border-border pb-7 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[.2em] text-primary">Open station operations</p>
+          <h1 className="mt-2 text-4xl font-bold tracking-[-.06em] sm:text-5xl">The control room.</h1>
+          <p className="mt-2 text-muted-foreground">Watch the signal. Keep the room moving.</p>
+        </div>
+      </div>
+      {(station.isError || status.isError) && <div className="mt-6"><ErrorPanel title="Control room signal issue" detail="Some station telemetry could not be loaded." onRetry={() => { void station.refetch(); void status.refetch(); }} /></div>}
+      <div className="mt-7 space-y-6">
+        <BroadcasterDownloadPanel />
+        <div className="grid gap-6 xl:grid-cols-[1.1fr_.9fr]">
+          <div className="space-y-6">
+            <SignalCard status={status.data} listeners={listeners.data?.count} />
+            <div className="grid gap-6 md:grid-cols-2"><NowPlayingForm track={nowPlaying.data} /><Diagnostics data={diagnostics.data} /></div>
+          </div>
+          <div className="space-y-6"><SettingsForm station={station.data} /><Moderation messages={chat.data || []} /></div>
+        </div>
+      </div>
+      <footer className="mt-10 flex items-center justify-between border-t border-border pt-6">
+        <Link href="/" className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-primary" data-testid="link-preview-station"><ExternalLink size={13} /> View public station</Link>
+        <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">USALB / open control room</span>
+      </footer>
+    </div>
+  </main>;
 }
 
 export default function Admin() {
