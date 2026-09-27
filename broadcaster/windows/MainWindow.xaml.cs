@@ -639,7 +639,7 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
                 throw new IOException("USALB live relay closed the broadcaster connection.");
 
             var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-            if (!message.Contains(""type":"ready"", StringComparison.OrdinalIgnoreCase))
+            if (!message.Contains("\"type\":\"ready\"", StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException($"USALB live relay rejected the broadcaster: {message}");
             }
