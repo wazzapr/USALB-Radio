@@ -1,6 +1,5 @@
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { request as httpRequest, type ClientRequest } from "node:http";
 import type { Socket } from "node:net";
 import { eq } from "drizzle-orm";
 import { broadcasterDevicesTable, db } from "@workspace/db";
