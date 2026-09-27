@@ -4,8 +4,12 @@ on:
   push:
     branches: [main]
     paths:
-      - "broadcaster/windows/**"
-      - "broadcaster/setup-usabl-broadcaster.ps1"
+      - "broadcaster/**"
+      - ".github/workflows/build-broadcaster.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "broadcaster/**"
       - ".github/workflows/build-broadcaster.yml"
   workflow_dispatch:
 
