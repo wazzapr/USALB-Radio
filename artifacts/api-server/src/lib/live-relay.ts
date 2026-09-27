@@ -372,6 +372,8 @@ export function handleLiveIngestRequest(req: IncomingMessage, res: ServerRespons
       }
 
       if (httpBroadcaster && httpBroadcaster !== req) {
+        // A replacement source starts on a clean PCM frame boundary.
+        pcmPending = Buffer.alloc(0);
         try { httpBroadcaster.destroy(); } catch {}
       }
 
