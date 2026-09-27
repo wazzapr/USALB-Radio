@@ -3,6 +3,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { request as httpRequest, type ClientRequest } from "node:http";
 import type { Socket } from "node:net";
 import { liquidsoapPassword, liquidsoapRunning } from "./liquidsoap";
+import { eq } from "drizzle-orm";
+import { broadcasterDevicesTable, db } from "@workspace/db";
 
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
@@ -177,6 +179,22 @@ function relay(chunk: Buffer): void {
     if (response.writableEnded || response.destroyed) { listeners.delete(response); continue; }
     try { response.write(payload); } catch { listeners.delete(response); }
   }
+}
+
+function recordIngestHeartbeat(): void {
+  // Keep the Control Room telemetry in sync with the direct HTTP broadcaster.
+  // The Windows app sends PCM; the server converts it to the public 320 kbps MP3 stream.
+  // This does not carry audio and does not replace the actual relay state.
+  // Imported lazily to avoid making the relay depend on UI code.
+  try {
+    const { recordBroadcasterHeartbeat } = require("./radio-state") as typeof import("./radio-state");
+    recordBroadcasterHeartbeat({
+      status: "STREAMING",
+      bitrateKbps: 320,
+      sampleRate: pcmSampleRate,
+      contentType: "audio/pcm",
+    });
+  } catch {}
 }
 
 function announceWsStatus(): void {
@@ -381,71 +399,106 @@ export function handleLiveIngestRequest(req: IncomingMessage, res: ServerRespons
     return true;
   }
 
-  if (httpBroadcaster && httpBroadcaster !== req) {
-    try { httpBroadcaster.destroy(); } catch {}
-  }
+  // Authenticate the long-lived ingest request against the same private
+  // publish token issued by /api/broadcaster/pair. Pause the request while
+  // the database lookup runs so no PCM bytes can be lost before listeners
+  // are attached.
+  req.pause();
+  void (async () => {
+    try {
+      const devices = await db.select({ id: broadcasterDevicesTable.id })
+        .from(broadcasterDevicesTable)
+        .where(eq(broadcasterDevicesTable.publishToken, token))
+        .limit(1);
 
-  cancelBroadcasterDisconnectGrace();
+      if (!devices[0]) {
+        res.statusCode = 401;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end("Invalid broadcaster token.");
+        req.resume();
+        req.destroy();
+        return;
+      }
 
-  const resumingExistingBroadcast = live && encoders.has(320);
-  httpBroadcaster = req;
-  httpBroadcasterResponse = res;
-  broadcastMode = "pcm";
-  pcmSampleRate = Math.round(Number(req.headers["x-usalb-sample-rate"]) || 44100);
-  pcmChannels = Math.min(2, Math.max(1, Math.round(Number(req.headers["x-usalb-channels"]) || 2)));
+      if (httpBroadcaster && httpBroadcaster !== req) {
+        try { httpBroadcaster.destroy(); } catch {}
+      }
 
-  if (!encoders.has(320) && !startEncoders()) {
-    res.statusCode = 503;
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.end("Server audio encoder is unavailable.");
-    httpBroadcaster = null;
-    httpBroadcasterResponse = null;
-    return true;
-  }
-
-  if (!resumingExistingBroadcast) {
-    live = true;
-    startedAt = new Date();
-    lastAudioAt = null;
-    totalBytes = 0;
-    announceWsStatus();
-  } else {
-    live = true;
-  }
-
-  res.writeHead(200, {
-    "Content-Type": "text/plain; charset=utf-8",
-    "Cache-Control": "no-store",
-    "Connection": "keep-alive",
-  });
-  res.flushHeaders?.();
-
-  const disconnect = () => {
-    if (httpBroadcaster !== req) return;
-    httpBroadcaster = null;
-    httpBroadcasterResponse = null;
-    if (live) {
       cancelBroadcasterDisconnectGrace();
-      broadcasterDisconnectTimer = setTimeout(() => {
-        broadcasterDisconnectTimer = null;
-        if (!httpBroadcaster && !broadcaster) reset();
-      }, BROADCASTER_RECONNECT_GRACE_MS);
-    } else {
-      reset();
-    }
-  };
 
-  req.on("data", (chunk: Buffer) => {
-    if (!live || httpBroadcaster !== req) return;
-    relay(chunk);
-  });
-  req.once("end", disconnect);
-  req.once("close", disconnect);
-  req.once("aborted", disconnect);
-  req.once("error", disconnect);
-  res.once("close", () => {
-    if (httpBroadcaster === req) disconnect();
-  });
+      const resumingExistingBroadcast = live && encoders.has(320);
+      httpBroadcaster = req;
+      httpBroadcasterResponse = res;
+      broadcastMode = "pcm";
+      pcmSampleRate = Math.round(Number(req.headers["x-usalb-sample-rate"]) || 44100);
+      pcmChannels = Math.min(2, Math.max(1, Math.round(Number(req.headers["x-usalb-channels"]) || 2)));
+
+      if (!encoders.has(320) && !startEncoders()) {
+        res.statusCode = 503;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end("Server audio encoder is unavailable.");
+        httpBroadcaster = null;
+        httpBroadcasterResponse = null;
+        req.resume();
+        return;
+      }
+
+      if (!resumingExistingBroadcast) {
+        live = true;
+        startedAt = new Date();
+        lastAudioAt = null;
+        totalBytes = 0;
+        announceWsStatus();
+      } else {
+        live = true;
+      }
+
+      recordIngestHeartbeat();
+
+      res.writeHead(200, {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Connection": "keep-alive",
+      });
+      res.flushHeaders?.();
+
+      const disconnect = () => {
+        if (httpBroadcaster !== req) return;
+        httpBroadcaster = null;
+        httpBroadcasterResponse = null;
+        if (live) {
+          cancelBroadcasterDisconnectGrace();
+          broadcasterDisconnectTimer = setTimeout(() => {
+            broadcasterDisconnectTimer = null;
+            if (!httpBroadcaster && !broadcaster) reset();
+          }, BROADCASTER_RECONNECT_GRACE_MS);
+        } else {
+          reset();
+        }
+      };
+
+      req.on("data", (chunk: Buffer) => {
+        if (!live || httpBroadcaster !== req) return;
+        relay(chunk);
+      });
+      req.once("end", disconnect);
+      req.once("close", disconnect);
+      req.once("aborted", disconnect);
+      req.once("error", disconnect);
+      res.once("close", () => {
+        if (httpBroadcaster === req) disconnect();
+      });
+      req.resume();
+    } catch (error) {
+      console.error("[USALB ingest auth]", error);
+      if (!res.headersSent) {
+        res.statusCode = 503;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end("Broadcaster authentication service unavailable.");
+      }
+      req.resume();
+    }
+  })();
 
   return true;
 }
