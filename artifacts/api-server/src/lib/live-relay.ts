@@ -9,7 +9,8 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 const LIVE_SOCKET_PATH = "/api/live/ws";
 const PCM_MAGIC = Buffer.from([0x50, 0x43, 0x4d, 0x31]);
-const MAX_RECENT_BYTES = 96 * 1024;
+// Keep only a short burst for a new listener; this avoids creating a large artificial live delay.
+const MAX_RECENT_BYTES = 64 * 1024;
 const QUALITY_PATHS = new Map<string, 320>([
   ["/api/live/stream", 320],
   ["/api/radio-stream", 320],
