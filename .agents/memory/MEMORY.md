@@ -1,0 +1,1 @@
+- [Node runtime stream typings](node-runtime-types.md) — use precise stdio and TCP socket types with the workspace’s current Node definitions.

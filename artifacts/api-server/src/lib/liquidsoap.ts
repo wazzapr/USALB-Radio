@@ -1,9 +1,12 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { get as httpGet, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import type { Readable } from "node:stream";
 
-let processRef: ChildProcessWithoutNullStreams | null = null;
+type LiquidsoapProcess = ChildProcessByStdio<null, Readable, Readable>;
+
+let processRef: LiquidsoapProcess | null = null;
 let starting: Promise<boolean> | null = null;
 let listenerCount = 0;
 

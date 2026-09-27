@@ -397,7 +397,7 @@ export function useLiveBroadcaster() {
     }
     try {
       setError("");
-      const nextStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { suppressLocalAudioPlayback: true } });
+      const nextStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { suppressLocalAudioPlayback: true } as MediaTrackConstraints });
       const previousStream = displayStreamRef.current;
       displayStreamRef.current = nextStream;
       updateDisplayDetails(nextStream);
@@ -429,7 +429,7 @@ export function useLiveBroadcaster() {
     if (state !== "live" || !navigator.mediaDevices?.getDisplayMedia) return;
     try {
       setError("");
-      const nextStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { suppressLocalAudioPlayback: true } });
+      const nextStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { suppressLocalAudioPlayback: true } as MediaTrackConstraints });
       if (!nextStream.getAudioTracks().length) {
         nextStream.getTracks().forEach((track) => track.stop());
         setError("The new share has no audio. Enable audio in the browser dialog, then replace the share again.");

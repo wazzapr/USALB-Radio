@@ -179,7 +179,9 @@ export function LivePlayer({ station, status }: { station?: Station; status?: St
     pendingBytesRef.current = Math.max(0, pendingBytesRef.current - next.byteLength);
     if (initialBufferReadyRef.current) initialBytesRemainingRef.current = Math.max(0, initialBytesRemainingRef.current - next.byteLength);
     try {
-      sourceBuffer.appendBuffer(next);
+      const appendable = new Uint8Array(next.byteLength);
+      appendable.set(next);
+      sourceBuffer.appendBuffer(appendable.buffer);
     } catch {
       appendBusyRef.current = false;
       pendingChunksRef.current.unshift(next);

@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse, Server } from "node:http";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { request as httpRequest, type ClientRequest } from "node:http";
+import type { Socket } from "node:net";
 import { liquidsoapPassword, liquidsoapRunning } from "./liquidsoap";
 
 import { WebSocket, WebSocketServer, type RawData } from "ws";
@@ -517,9 +518,10 @@ export function attachLiveRelay(server: Server): void {
 
     // Explicitly disable Node's idle socket timeout on the upgraded broadcaster
     // connection. The broadcaster is intentionally long-lived.
-    socket.setTimeout(0);
-    socket.setKeepAlive(true, 30_000);
-    socket.setNoDelay(true);
+    const tcpSocket = socket as Socket;
+    tcpSocket.setTimeout(0);
+    tcpSocket.setKeepAlive(true, 30_000);
+    tcpSocket.setNoDelay(true);
 
     wss.handleUpgrade(request, socket, head, (client) => {
       const role = url.searchParams.get("role");
