@@ -342,6 +342,8 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(KeyBox.Password))
             await EnsureCredentialsAsync();
         liveKey = KeyBox.Password.Trim();
+        var wsScheme = baseUri.Scheme == Uri.UriSchemeHttps ? "wss" : "ws";
+        liveIngestUri = new Uri($"{wsScheme}://{baseUri.Host}{port}/api/live/ws?role=broadcaster&key={Uri.EscapeDataString(liveKey)}");
         if (string.IsNullOrWhiteSpace(liveKey))
             throw new InvalidOperationException("USALB could not create broadcaster credentials. Check the server connection.");
 
@@ -386,10 +388,9 @@ public partial class MainWindow : Window
         }
     }
 
-    async Task<ChunkedAudioConnection> ConnectAudioAsync(Uri uri, string key, CancellationToken token)
+    async Task<PcmWebSocketConnection> ConnectAudioAsync(Uri uri, string key, CancellationToken token)
     {
-        var connection = await ChunkedAudioConnection.ConnectAsync(uri, key, SampleRate, Channels, token);
-        return connection;
+        return await PcmWebSocketConnection.ConnectAsync(uri, key, SampleRate, Channels, token);
     }
 
     async Task<bool> ReconnectAsync(CancellationToken token)
