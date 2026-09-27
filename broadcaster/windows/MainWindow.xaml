@@ -9,7 +9,11 @@
 
 <StackPanel>
   <TextBlock Text="USALB RADIO" FontSize="28" FontWeight="Bold"/>
-  <TextBlock Text="BROADCASTER · LIVE MIXER" FontSize="12" FontWeight="SemiBold" Foreground="#8E96A5" Margin="0,2,0,18"/>
+  <Grid Margin="0,2,0,18">
+  <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+  <TextBlock Text="BROADCASTER · LIVE MIXER" FontSize="12" FontWeight="SemiBold" Foreground="#8E96A5"/>
+  <Button Grid.Column="1" x:Name="DiagnosticsButton" Content="LIVE DIAGNOSTICS" Height="32" Padding="14,0" Click="DiagnosticsButton_Click"/>
+</Grid>
 </StackPanel>
 
 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
