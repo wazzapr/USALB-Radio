@@ -142,7 +142,7 @@ export default function Home() {
 
   const scheduleReconnect = () => {
     if (!shouldReconnectRef.current || reconnectTimerRef.current !== null) return;
-    const delay = Math.min(10, Math.max(1, 2 ** reconnectAttemptRef.current));
+    const delay = Math.min(4, Math.max(1, 2 ** reconnectAttemptRef.current));
     reconnectAttemptRef.current += 1;
     setReconnecting(true);
     setPlaying(false);
@@ -313,7 +313,7 @@ export default function Home() {
               <input aria-label="Volume" type="range" min="0" max="1" step=".01" value={muted ? 0 : volume} onChange={(e) => { setVolume(Number(e.target.value)); setMuted(false); }} className="h-1 w-full accent-[hsl(var(--primary))]" data-testid="input-volume" />
               <span className="font-mono text-[10px] text-muted-foreground">{Math.round((muted ? 0 : volume) * 100)}%</span>
             </div>
-              <div className="relative z-10 mt-3 flex items-center justify-between text-[11px] text-muted-foreground"><span className="flex items-center gap-2"><Wifi className={cn("h-3.5 w-3.5", reconnecting ? "text-accent animate-pulse" : "text-accent")} /> {reconnecting ? "Reconnecting…" : "Ready · 128 kbps MP3"}</span><span>Updated {lastUpdated}</span></div>
+              <div className="relative z-10 mt-3 flex items-center justify-between text-[11px] text-muted-foreground"><span className="flex items-center gap-2"><Wifi className={cn("h-3.5 w-3.5", reconnecting ? "text-accent animate-pulse" : "text-accent")} /> {reconnecting ? "Reconnecting…" : "Ready · 320 kbps MP3"}</span><span>Updated {lastUpdated}</span></div>
           </div>
         </div>
       </section>
