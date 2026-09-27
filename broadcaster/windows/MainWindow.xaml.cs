@@ -48,6 +48,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        VersionText.Text = $"v{GetType().Assembly.GetName().Version ?? new Version(0, 0, 0)}";
         monitorTimer.Tick += async (_, _) => await RefreshMonitorAsync();
         Loaded += async (_, _) => await RefreshMonitorAsync();
         MusicVolume.ValueChanged += (_, _) => musicGainPercent = (int)Math.Round(MusicVolume.Value);
