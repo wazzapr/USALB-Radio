@@ -174,6 +174,55 @@ public partial class MainWindow : Window
         }
     }
 
+    async void WhatsNewButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            WhatsNewButton.IsEnabled = false;
+            WhatsNewButton.Content = "LOADING…";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/repos/wazzapr/USALB-Radio/releases/tags/broadcaster-latest");
+            request.Headers.UserAgent.Add(new ProductInfoHeaderValue("USALB-Broadcaster", GetType().Assembly.GetName().Version?.ToString() ?? "1.0"));
+            using var response = await http.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var tag = doc.RootElement.GetProperty("tag_name").GetString() ?? "";
+            var releaseName = doc.RootElement.TryGetProperty("name", out var name) ? name.GetString() ?? "USALB Broadcaster" : "USALB Broadcaster";
+            var body = doc.RootElement.TryGetProperty("body", out var bodyElement) ? bodyElement.GetString() ?? "" : "";
+            var remoteVersionText = tag.StartsWith("broadcaster-v", StringComparison.OrdinalIgnoreCase)
+                ? tag["broadcaster-v".Length..]
+                : releaseName.Replace("USALB Broadcaster ", "", StringComparison.OrdinalIgnoreCase).Trim();
+            var localVersion = GetType().Assembly.GetName().Version ?? new Version(0, 0, 0);
+
+            if (string.IsNullOrWhiteSpace(body))
+                body = "No release notes were published for this build.";
+
+            var state = Version.TryParse(remoteVersionText, out var remoteVersion) && remoteVersion > localVersion
+                ? $"UPDATE AVAILABLE · v{remoteVersion}"
+                : $"YOU ARE CURRENT · v{localVersion}";
+
+            MessageBox.Show(
+                $"Current version: v{localVersion}\nLatest version: v{remoteVersionText}\n\n{state}\n\n{body}",
+                "USALB Broadcaster · What's New",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                "Could not load the latest release notes.\n\n" + ex.GetBaseException().Message,
+                "USALB Broadcaster · What's New",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        finally
+        {
+            WhatsNewButton.Content = "WHAT'S NEW";
+            WhatsNewButton.IsEnabled = true;
+        }
+    }
+
     async void LiveButton_Click(object sender, RoutedEventArgs e)
     {
         if (Interlocked.CompareExchange(ref stopping, 0, 0) != 0) return;
