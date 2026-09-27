@@ -108,7 +108,7 @@ router.post("/broadcaster/pair", async (req, res): Promise<void> => {
     telemetryEndpoint: `${base}/api/broadcaster/telemetry`,
     intentEndpoint: `${base}/api/broadcaster/intent`,
     commandsEndpoint: `${base}/api/broadcaster/commands`,
-    format: "audio/pcm; 44100 Hz; stereo; server-side adaptive MP3",
+    format: "audio/pcm; 44100 Hz; stereo; single server-side MP3 stream",
   }));
 });
 
