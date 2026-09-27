@@ -1,5 +1,11 @@
 # USALB Broadcaster Changelog
 
+## 1.0.16
+- Added persistent WebSocket connection monitoring with server close-code and close-reason diagnostics.
+- Added automatic reconnect retry handling for genuine connection failures.
+- Keeps 44.1 kHz stereo PCM streaming and automatic broadcaster enrollment.
+- Improved connection stability diagnostics for long-running live broadcasts.
+
 ## 1.0.15
 - Fixed automatic update versioning so new Broadcaster builds are detected by the in-app Update button.
 - Includes the current authenticated persistent WebSocket broadcaster connection.
