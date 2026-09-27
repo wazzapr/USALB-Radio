@@ -423,7 +423,7 @@ public partial class MainWindow : Window
             if (useSystemAudio)
             {
                 loopback = new WasapiLoopbackCapture();
-                musicBuffer = new BufferedWaveProvider(loopback.WaveFormat) { BufferDuration = TimeSpan.FromSeconds(4), DiscardOnBufferOverflow = false, ReadFully = true };
+                musicBuffer = new BufferedWaveProvider(loopback.WaveFormat) { BufferDuration = TimeSpan.FromSeconds(15), DiscardOnBufferOverflow = false, ReadFully = true };
                 musicResampler = new MediaFoundationResampler(musicBuffer, new WaveFormat(SampleRate, 16, Channels)) { ResamplerQuality = 60 };
                 musicSamples = musicResampler.ToSampleProvider();
                 loopback.DataAvailable += (_, a) => { if (running) musicBuffer?.AddSamples(a.Buffer, 0, a.BytesRecorded); };
@@ -482,7 +482,7 @@ public partial class MainWindow : Window
             try
             {
                 await Dispatcher.InvokeAsync(() => StatusText.Text = "Reconnecting to USALB…");
-                AddDiagnostic("Reconnect attempt started.");
+                AddDiagnostic($"Reconnect attempt started. Buffered audio: music={GetBufferedAudioSeconds(musicBuffer):0.00}s, mic={GetBufferedAudioSeconds(micBuffer):0.00}s.");
                 var connection = await ConnectAudioAsync(uri, liveKey, token);
                 var old = audioConnection;
                 audioConnection = connection;
@@ -508,6 +508,12 @@ public partial class MainWindow : Window
             }
         }
         return false;
+    }
+
+    static double GetBufferedAudioSeconds(BufferedWaveProvider? buffer)
+    {
+        if (buffer is null || buffer.WaveFormat.AverageBytesPerSecond <= 0) return 0;
+        return buffer.BufferedBytes / (double)buffer.WaveFormat.AverageBytesPerSecond;
     }
 
     async Task SendMixedAudioAsync(CancellationToken token)
