@@ -434,9 +434,11 @@ public partial class MainWindow : Window
                 return true;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { return false; }
-            catch
+            catch (Exception ex)
             {
-                try { await Task.Delay(3000, token); } catch { return false; }
+                var message = ex.GetBaseException().Message;
+                try { await Dispatcher.InvokeAsync(() => { if (running) StatusText.Text = "Connection lost · " + message; }); } catch { }
+                try { await Task.Delay(1000, token); } catch { return false; }
             }
         }
         return false;
@@ -627,6 +629,8 @@ public partial class MainWindow : Window
 internal sealed class PcmWebSocketConnection : IAsyncDisposable
 {
     readonly ClientWebSocket socket;
+    readonly TaskCompletionSource<Exception?> disconnectSignal =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     bool disposed;
 
     PcmWebSocketConnection(ClientWebSocket socket) { this.socket = socket; }
@@ -650,21 +654,23 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
                 pcmSampleRate = sampleRate,
                 pcmChannels = channels
             });
-            var startBytes = Encoding.UTF8.GetBytes(start);
-            await ws.SendAsync(startBytes, WebSocketMessageType.Text, true, timeoutCts.Token);
+            await ws.SendAsync(Encoding.UTF8.GetBytes(start), WebSocketMessageType.Text, true, timeoutCts.Token);
 
-            var buffer = new byte[4096];
+            var buffer = new byte[8192];
             var result = await ws.ReceiveAsync(buffer.AsMemory(), timeoutCts.Token);
             if (result.MessageType == WebSocketMessageType.Close)
-                throw new IOException("USALB live relay closed the broadcaster connection.");
+            {
+                var reason = result.CloseStatusDescription ?? "No close reason supplied.";
+                throw new IOException($"USALB live relay closed the broadcaster ({result.CloseStatus}): {reason}");
+            }
 
             var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
             if (!message.Contains("\"type\":\"ready\"", StringComparison.OrdinalIgnoreCase))
-            {
                 throw new InvalidOperationException($"USALB live relay rejected the broadcaster: {message}");
-            }
 
-            return new PcmWebSocketConnection(ws);
+            var connection = new PcmWebSocketConnection(ws);
+            connection.StartReceiveMonitor();
+            return connection;
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
@@ -678,14 +684,50 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
         }
     }
 
+    void StartReceiveMonitor()
+    {
+        _ = Task.Run(async () =>
+        {
+            var buffer = new byte[8192];
+            try
+            {
+                while (!disposed && socket.State == WebSocketState.Open)
+                {
+                    var result = await socket.ReceiveAsync(buffer.AsMemory(), CancellationToken.None);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        var reason = result.CloseStatusDescription ?? "No close reason supplied.";
+                        disconnectSignal.TrySetResult(new IOException($"USALB live relay closed the connection ({result.CloseStatus}): {reason}"));
+                        try { socket.Abort(); } catch { }
+                        return;
+                    }
+
+                    if (result.MessageType == WebSocketMessageType.Text)
+                    {
+                        var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                        if (message.Contains("\"type\":\"error\"", StringComparison.OrdinalIgnoreCase))
+                            disconnectSignal.TrySetResult(new IOException("USALB live relay reported an error: " + message));
+                    }
+
+                    while (!result.EndOfMessage)
+                        result = await socket.ReceiveAsync(buffer.AsMemory(), CancellationToken.None);
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!disposed) disconnectSignal.TrySetResult(ex);
+            }
+        });
+    }
+
     public async Task SendAudioAsync(byte[] pcm, CancellationToken token)
     {
         if (disposed) throw new ObjectDisposedException(nameof(PcmWebSocketConnection));
+        if (disconnectSignal.Task.IsCompleted && disconnectSignal.Task.Result is Exception error)
+            throw new IOException("USALB live relay connection was lost.", error);
+
         var packet = new byte[4 + pcm.Length];
-        packet[0] = 0x50;
-        packet[1] = 0x43;
-        packet[2] = 0x4d;
-        packet[3] = 0x31;
+        packet[0] = 0x50; packet[1] = 0x43; packet[2] = 0x4d; packet[3] = 0x31;
         Buffer.BlockCopy(pcm, 0, packet, 4, pcm.Length);
         await socket.SendAsync(packet.AsMemory(), WebSocketMessageType.Binary, true, token);
     }
@@ -694,6 +736,7 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
     {
         try { socket.Abort(); } catch { }
         try { socket.Dispose(); } catch { }
+        disconnectSignal.TrySetResult(new IOException("Broadcaster socket aborted."));
     }
 
     public async ValueTask DisposeAsync()
@@ -707,5 +750,6 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
         }
         catch { }
         socket.Dispose();
+        disconnectSignal.TrySetResult(null);
     }
 }
