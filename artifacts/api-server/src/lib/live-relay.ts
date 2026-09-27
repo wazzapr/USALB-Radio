@@ -35,7 +35,7 @@ const wsListeners = new Set<WebSocket>();
 // Keep a small framing buffer so a PCM1 header split across TCP chunks is not lost.
 let pcmPending = Buffer.alloc(0);
 let broadcasterDisconnectTimer: NodeJS.Timeout | null = null;
-const BROADCASTER_RECONNECT_GRACE_MS = 5_000;
+const BROADCASTER_RECONNECT_GRACE_MS = 30_000;
 const BROADCASTER_WS_PING_MS = 20_000;
 
 function sendJson(socket: WebSocket, payload: Record<string, unknown>): void {
@@ -246,6 +246,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
   const pingTimer = setInterval(() => {
     if (socket.readyState === WebSocket.OPEN) {
       try { socket.ping(); } catch {}
+      sendJson(socket, { type: "heartbeat", timestamp: Date.now() });
     }
   }, BROADCASTER_WS_PING_MS);
   socket.once("close", () => clearInterval(pingTimer));
@@ -266,11 +267,14 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
         type?: string;
         codec?: string;
         mimeType?: string;
+        timestamp?: number;
         pcmSampleRate?: number;
         pcmChannels?: number;
       };
 
-      if (message.type === "start") {
+      if (message.type === "heartbeat") {
+        sendJson(socket, { type: "heartbeat", timestamp: Date.now() });
+      } else if (message.type === "start") {
         broadcastMode =
           message.mimeType === "audio/mpeg" || message.codec === "mp3"
             ? "mp3"
@@ -321,7 +325,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
     if (broadcaster !== socket) return;
     broadcaster = null;
     // Do not take the radio offline for a transient network/proxy drop.
-    // Keep the encoder and listener connections alive for up to 60 seconds
+    // Keep the encoder and listener connections alive for up to 30 seconds
     // so the broadcaster can reconnect without interrupting the station.
     if (live) {
       cancelBroadcasterDisconnectGrace();
