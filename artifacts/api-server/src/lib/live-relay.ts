@@ -5,6 +5,7 @@ import type { Socket } from "node:net";
 import { liquidsoapPassword, liquidsoapRunning } from "./liquidsoap";
 import { eq } from "drizzle-orm";
 import { broadcasterDevicesTable, db } from "@workspace/db";
+import { recordBroadcasterHeartbeat } from "./radio-state";
 
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
@@ -182,19 +183,12 @@ function relay(chunk: Buffer): void {
 }
 
 function recordIngestHeartbeat(): void {
-  // Keep the Control Room telemetry in sync with the direct HTTP broadcaster.
-  // The Windows app sends PCM; the server converts it to the public 320 kbps MP3 stream.
-  // This does not carry audio and does not replace the actual relay state.
-  // Imported lazily to avoid making the relay depend on UI code.
-  try {
-    const { recordBroadcasterHeartbeat } = require("./radio-state") as typeof import("./radio-state");
-    recordBroadcasterHeartbeat({
-      status: "STREAMING",
-      bitrateKbps: 320,
-      sampleRate: pcmSampleRate,
-      contentType: "audio/pcm",
-    });
-  } catch {}
+  recordBroadcasterHeartbeat({
+    status: "STREAMING",
+    bitrateKbps: 320,
+    sampleRate: pcmSampleRate,
+    contentType: "audio/pcm",
+  });
 }
 
 function announceWsStatus(): void {
