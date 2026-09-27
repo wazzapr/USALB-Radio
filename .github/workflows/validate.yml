@@ -9,6 +9,9 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    env:
+      PORT: 5000
+      BASE_PATH: /
 
     steps:
       - name: Checkout
