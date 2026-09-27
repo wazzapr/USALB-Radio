@@ -1,5 +1,11 @@
 # USALB Broadcaster Changelog
 
+## 1.0.17
+- Added a Live Diagnostics window with connection health, audio-flow health, reconnect count, uptime, frames and bytes sent.
+- Captures WebSocket close codes, close reasons, server error messages, receive errors, reconnect failures, and broadcast-loop errors.
+- Added Copy Diagnostics and Send to GitHub report actions for troubleshooting.
+
+
 ## 1.0.16
 - Added persistent WebSocket connection monitoring with server close-code and close-reason diagnostics.
 - Added automatic reconnect retry handling for genuine connection failures.
