@@ -1,0 +1,30 @@
+<Window x:Class="USALB.Broadcaster.DiagnosticsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="USALB Broadcaster · Live Diagnostics" Width="720" Height="620"
+        MinWidth="620" MinHeight="500" WindowStartupLocation="CenterOwner"
+        Background="#090C11" Foreground="White">
+<Grid Margin="18">
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <StackPanel>
+    <TextBlock Text="LIVE DIAGNOSTICS" FontSize="22" FontWeight="Bold"/>
+    <TextBlock Text="Connection health, audio flow, reconnects and errors" Foreground="#8E96A5" Margin="0,3,0,12"/>
+  </StackPanel>
+  <Grid Grid.Row="1" Margin="0,0,0,12">
+    <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+    <Border Background="#151922" CornerRadius="10" Padding="12" Margin="0,0,6,0"><StackPanel><TextBlock Text="CONNECTION" FontSize="10" Foreground="#8E96A5"/><TextBlock x:Name="ConnectionHealth" Text="—" FontSize="16" FontWeight="Bold" Margin="0,4,0,0"/></StackPanel></Border>
+    <Border Grid.Column="1" Background="#151922" CornerRadius="10" Padding="12" Margin="6,0"><StackPanel><TextBlock Text="AUDIO FLOW" FontSize="10" Foreground="#8E96A5"/><TextBlock x:Name="AudioHealth" Text="—" FontSize="16" FontWeight="Bold" Margin="0,4,0,0"/></StackPanel></Border>
+    <Border Grid.Column="2" Background="#151922" CornerRadius="10" Padding="12" Margin="6,0"><StackPanel><TextBlock Text="RECONNECTS" FontSize="10" Foreground="#8E96A5"/><TextBlock x:Name="ReconnectCount" Text="0" FontSize="16" FontWeight="Bold" Margin="0,4,0,0"/></StackPanel></Border>
+    <Border Grid.Column="3" Background="#151922" CornerRadius="10" Padding="12" Margin="6,0,0,0"><StackPanel><TextBlock Text="UPTIME" FontSize="10" Foreground="#8E96A5"/><TextBlock x:Name="LiveUptime" Text="—" FontSize="16" FontWeight="Bold" Margin="0,4,0,0"/></StackPanel></Border>
+  </Grid>
+  <TextBox x:Name="LogBox" Grid.Row="2" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+           VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+           Background="#05070A" Foreground="#C9D0DC" BorderBrush="#303541"
+           FontFamily="Consolas" FontSize="12" Padding="10"/>
+  <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+    <Button Content="COPY DIAGNOSTICS" Height="36" Padding="14,0" Margin="0,0,8,0" Click="CopyButton_Click"/>
+    <Button Content="SEND TO GITHUB" Height="36" Padding="14,0" Margin="0,0,8,0" Click="GitHubButton_Click"/>
+    <Button Content="CLOSE" Height="36" Padding="18,0" Click="CloseButton_Click"/>
+  </StackPanel>
+</Grid>
+</Window>
