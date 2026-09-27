@@ -5,7 +5,6 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { handleLiveStreamRequest } from "./lib/live-relay";
-import { handleLiquidsoapStreamRequest } from "./lib/liquidsoap";
 
 const app: Express = express();
 
@@ -37,11 +36,9 @@ app.use(express.urlencoded({ extended: true }));
 // router so /api/radio-stream is handled by the same relay that receives
 // /api/live/ws audio.
 app.use((req, res, next) => {
-  // The proven live MP3 relay is the primary public stream path.
-  // Liquidsoap remains connected as the radio engine, but it must not be
-  // allowed to block the broadcaster or make the public stream go offline.
+  // One public stream path: the authenticated broadcaster feeds this relay,
+  // and listeners receive the same encoded MP3 stream.
   if (handleLiveStreamRequest(req, res)) return;
-  if (handleLiquidsoapStreamRequest(req, res)) return;
   next();
 });
 
