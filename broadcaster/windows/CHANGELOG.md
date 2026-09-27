@@ -1,5 +1,11 @@
 # USALB Broadcaster Changelog
 
+## 1.0.12
+- Added automatic device pairing so the private publish key is created by the server and saved locally instead of being manually entered.
+- Includes the latest ingest handshake, reconnect, and connection diagnostics fixes.
+- Keeps the **What's New** and **CHECK FOR UPDATES** release flow.
+- Version, installer, and release metadata are synchronized to 1.0.12.
+
 ## 1.0.11
 - Includes the latest broadcaster ingest connection and handshake fixes.
 - Keeps the 12-second handshake timeout and initial silent frame for reverse-proxy compatibility.
