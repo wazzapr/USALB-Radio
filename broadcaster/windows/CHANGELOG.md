@@ -1,5 +1,10 @@
 # USALB Broadcaster Changelog
 
+## 1.0.13
+- Fixed broadcaster update-version parsing when the GitHub release tag is `broadcaster-latest`.
+- The updater now extracts the semantic version from either the release tag or release name, including legacy malformed release names.
+- Keeps the 1.0.12 pairing, handshake, reconnect, and update features.
+
 ## 1.0.12
 - Added automatic device pairing so the private publish key is created by the server and saved locally instead of being manually entered.
 - Includes the latest ingest handshake, reconnect, and connection diagnostics fixes.
