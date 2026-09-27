@@ -5,6 +5,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Net.Security;
 using System.Security.Authentication;
@@ -44,13 +45,17 @@ public partial class MainWindow : Window
     bool IsClosing { get; set; }
     Uri? liveIngestUri;
     string liveKey = "";
+    const string PairingFileName = "broadcaster-credentials.json";
+    string pairedDeviceId = "";
+    string CredentialsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "USALB", PairingFileName);
+
 
     public MainWindow()
     {
         InitializeComponent();
         VersionText.Text = $"v{GetType().Assembly.GetName().Version ?? new Version(0, 0, 0)}";
         monitorTimer.Tick += async (_, _) => await RefreshMonitorAsync();
-        Loaded += async (_, _) => await RefreshMonitorAsync();
+        Loaded += async (_, _) => { LoadSavedCredentials(); await RefreshMonitorAsync(); };
         MusicVolume.ValueChanged += (_, _) => musicGainPercent = (int)Math.Round(MusicVolume.Value);
         MicVolume.ValueChanged += (_, _) => micGainPercent = (int)Math.Round(MicVolume.Value);
         MasterVolume.ValueChanged += (_, _) => masterGainPercent = (int)Math.Round(MasterVolume.Value);
@@ -63,6 +68,128 @@ public partial class MainWindow : Window
     }
 
     static string QuoteArg(string value) => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+
+    sealed class SavedCredentials
+    {
+        public string DeviceId { get; set; } = "";
+        public string PublishToken { get; set; } = "";
+    }
+
+    void LoadSavedCredentials()
+    {
+        try
+        {
+            if (!File.Exists(CredentialsPath)) return;
+            var json = File.ReadAllText(CredentialsPath);
+            var saved = JsonSerializer.Deserialize<SavedCredentials>(json);
+            if (saved is null || string.IsNullOrWhiteSpace(saved.PublishToken)) return;
+            pairedDeviceId = saved.DeviceId ?? "";
+            KeyBox.Password = saved.PublishToken;
+            KeyBox.IsEnabled = false;
+            PairingText.Text = "PAIRED · private publish key saved on this PC.";
+            PairButton.Content = "RE-PAIR DEVICE";
+        }
+        catch
+        {
+            // A corrupt local credential file should never prevent the broadcaster from opening.
+        }
+    }
+
+    async void PairButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (running)
+        {
+            MessageBox.Show("Stop the live broadcast before pairing.", "USALB Broadcaster", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var code = PairingCodeBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            MessageBox.Show("Enter the station pairing code.", "USALB Broadcaster", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            PairButton.IsEnabled = false;
+            PairButton.Content = "PAIRING…";
+            var server = ServerBox.Text.Trim().TrimEnd('/');
+            if (!Uri.TryCreate(server, UriKind.Absolute, out var baseUri) ||
+                (baseUri.Scheme != Uri.UriSchemeHttps && baseUri.Scheme != Uri.UriSchemeHttp))
+                throw new InvalidOperationException("Enter a valid HTTP or HTTPS USALB server URL.");
+
+            pairedDeviceId = string.IsNullOrWhiteSpace(pairedDeviceId)
+                ? Guid.NewGuid().ToString()
+                : pairedDeviceId;
+
+            using var response = await http.PostAsJsonAsync(
+                $"{baseUri}/api/broadcaster/pair",
+                new { code, deviceId = pairedDeviceId, deviceName = $"USALB Broadcaster · {Environment.MachineName}" });
+            var body = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                string detail = body;
+                try
+                {
+                    using var errorDoc = JsonDocument.Parse(body);
+                    if (errorDoc.RootElement.TryGetProperty("error", out var error)) detail = error.GetString() ?? body;
+                }
+                catch { }
+                throw new InvalidOperationException($"Pairing failed ({(int)response.StatusCode}): {detail}");
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            var token = doc.RootElement.GetProperty("publishToken").GetString();
+            var deviceId = doc.RootElement.GetProperty("deviceId").GetString();
+            if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(deviceId))
+                throw new InvalidOperationException("The server did not return broadcaster credentials.");
+
+            Directory.CreateDirectory(Path.GetDirectoryName(CredentialsPath)!);
+            File.WriteAllText(CredentialsPath, JsonSerializer.Serialize(new SavedCredentials
+            {
+                DeviceId = deviceId,
+                PublishToken = token
+            }));
+
+            pairedDeviceId = deviceId;
+            KeyBox.Password = token;
+            KeyBox.IsEnabled = false;
+            PairingCodeBox.Clear();
+            PairingText.Text = "PAIRED · private publish key saved on this PC.";
+            StatusText.Text = "Device paired successfully. Press GO LIVE when ready.";
+            PairButton.Content = "RE-PAIR DEVICE";
+        }
+        catch (Exception ex)
+        {
+            PairingText.Text = "PAIRING ERROR · " + ex.GetBaseException().Message;
+            MessageBox.Show(ex.GetBaseException().Message, "USALB Broadcaster Pairing", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            PairButton.IsEnabled = true;
+            if (PairButton.Content?.ToString() == "PAIRING…") PairButton.Content = "PAIR DEVICE";
+        }
+    }
+
+    void ClearPairingButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (running)
+        {
+            MessageBox.Show("Stop the live broadcast before clearing pairing.", "USALB Broadcaster", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        try { if (File.Exists(CredentialsPath)) File.Delete(CredentialsPath); } catch { }
+        pairedDeviceId = "";
+        liveKey = "";
+        KeyBox.Clear();
+        KeyBox.IsEnabled = false;
+        PairingCodeBox.Clear();
+        PairButton.Content = "PAIR DEVICE";
+        PairingText.Text = "Not paired yet. Enter the station pairing code once, then GO LIVE will use the saved key automatically.";
+        StatusText.Text = "Pairing cleared. The broadcaster is offline.";
+    }
 
     async void UpdateButton_Click(object sender, RoutedEventArgs e)
     {
