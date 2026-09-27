@@ -29,6 +29,9 @@ let totalBytes = 0;
 const listeners = new Map<ServerResponse, Quality>();
 const wsListeners = new Set<WebSocket>();
 let liquidsoapFeed: ClientRequest | null = null;
+// HTTP chunk boundaries are not guaranteed to match broadcaster audio frames.
+// Keep a small framing buffer so a PCM1 header split across TCP chunks is not lost.
+let pcmPending = Buffer.alloc(0);
 let broadcasterDisconnectTimer: NodeJS.Timeout | null = null;
 const BROADCASTER_RECONNECT_GRACE_MS = 10_000;
 const BROADCASTER_WS_PING_MS = 20_000;
@@ -135,18 +138,34 @@ function pcmPayload(chunk: Buffer): Buffer | null {
 }
 
 function relay(chunk: Buffer): void {
-  let payload = chunk;
   if (broadcastMode === "pcm") {
-    const pcm = pcmPayload(chunk);
-    if (!pcm) return;
-    payload = pcm;
-    for (const encoder of encoders.values()) {
-      if (!encoder.process.stdin.destroyed) {
-        try { encoder.process.stdin.write(payload); } catch { reset(); return; }
+    // The broadcaster sends: [PCM1 magic][exact 20 ms PCM frame]. TCP/HTTP
+    // may split or coalesce these writes, so never assume one request "data"
+    // event contains one complete frame.
+    pcmPending = pcmPending.length ? Buffer.concat([pcmPending, chunk]) : Buffer.from(chunk);
+    const frameBytes = Math.max(1, Math.round(pcmSampleRate * pcmChannels * 2 * 0.02));
+    const packetBytes = PCM_MAGIC.length + frameBytes;
+
+    while (pcmPending.length >= PCM_MAGIC.length) {
+      const magicAt = pcmPending.indexOf(PCM_MAGIC);
+      if (magicAt < 0) {
+        pcmPending = pcmPending.subarray(Math.max(0, pcmPending.length - PCM_MAGIC.length + 1));
+        return;
+      }
+      if (magicAt > 0) pcmPending = pcmPending.subarray(magicAt);
+      if (pcmPending.length < packetBytes) return;
+
+      const payload = pcmPending.subarray(PCM_MAGIC.length, packetBytes);
+      pcmPending = pcmPending.subarray(packetBytes);
+      for (const encoder of encoders.values()) {
+        if (!encoder.process.stdin.destroyed) {
+          try { encoder.process.stdin.write(payload); } catch { reset(); return; }
+        }
       }
     }
     return;
   }
+  let payload = chunk;
   const encoder = encoders.get(320);
   if (!encoder) return;
   lastAudioAt = new Date();
@@ -185,6 +204,7 @@ function reset(): void {
   startedAt = null;
   lastAudioAt = null;
   totalBytes = 0;
+  pcmPending = Buffer.alloc(0);
   for (const socket of wsListeners) { try { socket.close(1000, "Broadcast ended"); } catch {} }
   wsListeners.clear();
   for (const encoder of encoders.values()) { try { encoder.process.stdin.end(); } catch {} try { encoder.process.kill("SIGTERM"); } catch {} }
