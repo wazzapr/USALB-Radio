@@ -34,12 +34,12 @@ function connectionDetails(req: Request) {
     serverAddress: base,
     port,
     protocol: parsed.protocol === "https:" ? "HTTPS" : "HTTP",
-    connectionType: "Authenticated persistent PCM source to USALB live relay",
+    connectionType: "Authenticated persistent WebSocket PCM source to USALB live relay",
     codec: "PCM → single server MP3 encoder",
     bitrateKbps: 320,
     sampleRate: 44100,
     channels: "Stereo",
-    publishEndpoint: `${base}/api/live/ingest`,
+    publishEndpoint: `${parsed.protocol === "https:" ? "wss" : "ws"}://${parsed.host}/api/live/ws?role=broadcaster`,
     publicStreamEndpoint: `${base}/api/radio-stream`,
   };
 }
