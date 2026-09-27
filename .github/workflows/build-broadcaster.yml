@@ -36,7 +36,7 @@ jobs:
         run: dotnet restore USALBBroadcaster.csproj
 
       - name: Publish self-contained Windows app
-        run: dotnet publish USALBBroadcaster.csproj -c Release -r win-x64 --self-contained true -o publish
+        run: dotnet publish USALBBroadcaster.csproj -c Release -r win-x64 --self-contained true -o publish /p:BroadcasterBuild=${{ github.sha }}
 
       - name: Build automatic updater helper
         shell: powershell
@@ -132,6 +132,7 @@ jobs:
             }
           }
           $notes = ($lines[$start..($end - 1)] -join [Environment]::NewLine).Trim()
+          $notes += [Environment]::NewLine + [Environment]::NewLine + "Build: " + "${{ github.sha }}"
           "body<<USALB_RELEASE_NOTES" >> $env:GITHUB_OUTPUT
           $notes >> $env:GITHUB_OUTPUT
           "USALB_RELEASE_NOTES" >> $env:GITHUB_OUTPUT
