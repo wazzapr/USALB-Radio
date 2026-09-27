@@ -112,6 +112,43 @@ router.post("/broadcaster/pair", async (req, res): Promise<void> => {
   }));
 });
 
+router.post("/broadcaster/enroll", async (req, res): Promise<void> => {
+  const deviceId = typeof req.body?.deviceId === "string" && req.body.deviceId.trim()
+    ? req.body.deviceId.trim().slice(0, 128)
+    : randomUUID();
+  const deviceName = typeof req.body?.deviceName === "string" && req.body.deviceName.trim()
+    ? req.body.deviceName.trim().slice(0, 120)
+    : "USALB Broadcaster";
+
+  const [existing] = await db.select().from(broadcasterDevicesTable)
+    .where(eq(broadcasterDevicesTable.deviceId, deviceId))
+    .limit(1);
+
+  const device = existing ?? (await db.insert(broadcasterDevicesTable).values({
+    deviceId,
+    publishToken: randomBytes(32).toString("hex"),
+    displayName: deviceName,
+  }).returning())[0];
+
+  if (!device) {
+    res.status(500).json({ error: "Could not create broadcaster credentials" });
+    return;
+  }
+
+  const base = requestBaseUrl(req);
+  res.json({
+    deviceId: device.deviceId,
+    displayName: device.displayName,
+    publishToken: device.publishToken,
+    ...connectionDetails(req),
+    heartbeatEndpoint: `${base}/api/broadcaster/heartbeat`,
+    telemetryEndpoint: `${base}/api/broadcaster/telemetry`,
+    intentEndpoint: `${base}/api/broadcaster/intent`,
+    commandsEndpoint: `${base}/api/broadcaster/commands`,
+    format: "audio/pcm; 44100 Hz; stereo; single server-side MP3 stream",
+  });
+});
+
 router.get("/broadcaster/connection", (req, res): void => {
   res.json(GetBroadcasterConnectionResponse.parse(connectionDetails(req)));
 });
