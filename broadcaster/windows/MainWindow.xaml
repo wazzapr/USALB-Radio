@@ -72,7 +72,7 @@
 <StackPanel>
 <TextBlock Text="AUDIO ENGINE" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
 <TextBlock Text="44.1 kHz · Stereo · 16-bit PCM" FontSize="16" FontWeight="SemiBold" Margin="0,10,0,0"/>
-<TextBlock Text="Windows WASAPI loopback → USALB Broadcaster → Liquidsoap → 320 kbps MP3" Foreground="#AEB4C0" TextWrapping="Wrap" Margin="0,5,0,0"/>
+<TextBlock Text="Windows WASAPI loopback → USALB Broadcaster → server FFmpeg → 320 kbps MP3" Foreground="#AEB4C0" TextWrapping="Wrap" Margin="0,5,0,0"/>
 <TextBlock x:Name="MeterText" Text="Input meter: —" FontSize="13" Margin="0,14,0,0"/>
 <TextBlock x:Name="AudioEngineText" Text="Audio engine ready" Foreground="#8E96A5" Margin="0,5,0,0"/>
 </StackPanel>
@@ -107,7 +107,7 @@
 <TextBlock Text="STATION" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
 <TextBlock x:Name="StationText" Text="USALB Radio" FontSize="18" FontWeight="Bold" Margin="0,10,0,0"/>
 <TextBlock Text="Live system-audio broadcaster" Foreground="#AEB4C0" Margin="0,4,0,0"/>
-<TextBlock Text="Liquidsoap radio engine · 320 kbps MP3" Foreground="#AEB4C0" Margin="0,8,0,0" TextWrapping="Wrap"/>
+<TextBlock Text="USALB server audio engine · 320 kbps MP3" Foreground="#AEB4C0" Margin="0,8,0,0" TextWrapping="Wrap"/>
 </StackPanel>
 </Border>
 
