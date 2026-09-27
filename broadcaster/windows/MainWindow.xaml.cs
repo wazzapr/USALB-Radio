@@ -9,6 +9,7 @@ using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Net.Security;
 using System.Security.Authentication;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Threading;
 using NAudio.Wave;
@@ -158,6 +159,18 @@ public partial class MainWindow : Window
         return "";
     }
 
+    static string GetLocalBuildId() {
+        return Assembly.GetExecutingAssembly().GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(x => string.Equals(x.Key, "BroadcasterBuild", StringComparison.OrdinalIgnoreCase))?.Value?.Trim() ?? "";
+    }
+
+    static string GetRemoteBuildId(JsonElement release) {
+        var body = release.TryGetProperty("body", out var bodyElement) ? bodyElement.GetString() ?? "" : "";
+        foreach (var line in body.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)) {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("Build:", StringComparison.OrdinalIgnoreCase)) return trimmed.Substring("Build:".Length).Trim();
+        }
+        return "";
+    }
     async void UpdateButton_Click(object sender, RoutedEventArgs e)
     {
         if (running)
@@ -185,7 +198,14 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException("The update server returned an invalid broadcaster version.");
 
             var localVersion = GetType().Assembly.GetName().Version ?? new Version(1, 0, 0);
-            if (remoteVersion <= localVersion)
+            var localBuild = GetLocalBuildId();
+            var remoteBuild = GetRemoteBuildId(doc.RootElement);
+            var updateAvailable = remoteVersion > localVersion ||
+                                  (remoteVersion == localVersion &&
+                                   !string.IsNullOrWhiteSpace(remoteBuild) &&
+                                   !string.Equals(localBuild, remoteBuild, StringComparison.OrdinalIgnoreCase));
+
+            if (!updateAvailable)
             {
                 UpdateButton.Content = "UP TO DATE";
                 StatusText.Text = $"Broadcaster v{localVersion} is up to date.";
@@ -213,7 +233,7 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException("The latest broadcaster package is not available yet.");
 
             UpdateButton.Content = "DOWNLOADING…";
-            StatusText.Text = $"Downloading broadcaster v{remoteVersion}…";
+            StatusText.Text = string.IsNullOrWhiteSpace(remoteBuild) ? $"Downloading broadcaster v{remoteVersion}…" : $"Downloading broadcaster v{remoteVersion} · build {remoteBuild[..Math.Min(7, remoteBuild.Length)]}…";
 
             var tempZip = Path.Combine(Path.GetTempPath(), $"USALB-Broadcaster-{remoteVersion}.zip");
             using (var download = await http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead))
