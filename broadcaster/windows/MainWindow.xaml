@@ -46,9 +46,17 @@
 <TextBlock Text="CONNECTION" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
 <TextBlock Text="USALB server" Margin="0,10,0,0"/>
 <TextBox x:Name="ServerBox" Text="https://usalb-radio--applauncher.replit.app" Margin="0,5,0,0" Padding="8" Background="#0D1016" Foreground="White" BorderBrush="#303541"/>
-<TextBlock Text="Broadcaster key" FontSize="11" Foreground="#8E96A5" Margin="0,10,0,0"/>
-<PasswordBox x:Name="KeyBox" Margin="0,5,0,0" Padding="8" Background="#0D1016" Foreground="White" BorderBrush="#303541"/>
-<TextBlock x:Name="PairingText" Text="Pair the broadcaster in the web Control Room, then paste its private key here." Foreground="#8E96A5" FontSize="11" TextWrapping="Wrap" Margin="0,9,0,0"/>
+<TextBlock Text="DEVICE PAIRING" FontSize="11" FontWeight="Bold" Foreground="#8E96A5" Margin="0,10,0,0"/>
+<TextBlock Text="Pair once — the private publish key is saved securely on this PC." Foreground="#AEB4C0" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+<TextBlock Text="Pairing code" FontSize="11" Foreground="#8E96A5" Margin="0,9,0,0"/>
+<TextBox x:Name="PairingCodeBox" Margin="0,4,0,0" Padding="8" Background="#0D1016" Foreground="White" BorderBrush="#303541"/>
+<StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+  <Button x:Name="PairButton" Content="PAIR DEVICE" Height="34" Padding="14,0" Click="PairButton_Click"/>
+  <Button x:Name="ClearPairingButton" Content="CLEAR SAVED KEY" Height="34" Padding="14,0" Margin="8,0,0,0" Click="ClearPairingButton_Click"/>
+</StackPanel>
+<TextBlock x:Name="PairingText" Text="Not paired yet. Enter the station pairing code once, then GO LIVE will use the saved key automatically." Foreground="#8E96A5" FontSize="11" TextWrapping="Wrap" Margin="0,9,0,0"/>
+<TextBlock Text="Private broadcaster key" FontSize="11" Foreground="#8E96A5" Margin="0,9,0,0"/>
+<PasswordBox x:Name="KeyBox" IsEnabled="False" Margin="0,4,0,0" Padding="8" Background="#0D1016" Foreground="White" BorderBrush="#303541"/>
 </StackPanel>
 </Border>
 </StackPanel>
