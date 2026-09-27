@@ -657,7 +657,7 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
             await ws.SendAsync(Encoding.UTF8.GetBytes(start), WebSocketMessageType.Text, true, timeoutCts.Token);
 
             var buffer = new byte[8192];
-            var result = await ws.ReceiveAsync(buffer.AsMemory(), timeoutCts.Token);
+            var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), timeoutCts.Token);
             if (result.MessageType == WebSocketMessageType.Close)
             {
                 var reason = result.CloseStatusDescription ?? "No close reason supplied.";
@@ -693,7 +693,7 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
             {
                 while (!disposed && socket.State == WebSocketState.Open)
                 {
-                    var result = await socket.ReceiveAsync(buffer.AsMemory(), CancellationToken.None);
+                    var result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
                         var reason = result.CloseStatusDescription ?? "No close reason supplied.";
@@ -710,7 +710,7 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
                     }
 
                     while (!result.EndOfMessage)
-                        result = await socket.ReceiveAsync(buffer.AsMemory(), CancellationToken.None);
+                        result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
                 }
             }
             catch (Exception ex)
