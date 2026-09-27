@@ -35,7 +35,7 @@ const wsListeners = new Set<WebSocket>();
 // Keep a small framing buffer so a PCM1 header split across TCP chunks is not lost.
 let pcmPending = Buffer.alloc(0);
 let broadcasterDisconnectTimer: NodeJS.Timeout | null = null;
-const BROADCASTER_RECONNECT_GRACE_MS = 10_000;
+const BROADCASTER_RECONNECT_GRACE_MS = 5_000;
 const BROADCASTER_WS_PING_MS = 20_000;
 
 function sendJson(socket: WebSocket, payload: Record<string, unknown>): void {
