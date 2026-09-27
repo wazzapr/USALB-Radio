@@ -20,4 +20,5 @@
     <None Remove="Updater/**/*.csproj" />
   </ItemGroup>
   <ItemGroup><PackageReference Include="NAudio" Version="2.2.1" /></ItemGroup>
+  <!-- Build workflow trigger: repaired release-note validation. -->
 </Project>
