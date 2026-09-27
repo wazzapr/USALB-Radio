@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Collections.Concurrent;
 using System.Net.Http;
 using System.Net.WebSockets;
 using System.Text;
@@ -44,6 +45,15 @@ public partial class MainWindow : Window
     volatile bool limiterEnabled = true;
     int stopping;
     bool IsClosing { get; set; }
+    readonly ConcurrentQueue<string> diagnosticEvents = new();
+    long framesSent;
+    long bytesSent;
+    int reconnectCount;
+    DateTime liveStartedAt;
+    DateTime lastAudioAt;
+    string lastConnectionState = "OFFLINE";
+    string lastAudioState = "IDLE";
+    string lastError = "None";
     Uri? liveIngestUri;
     string liveKey = "";
     const string PairingFileName = "broadcaster-credentials.json";
@@ -57,6 +67,8 @@ public partial class MainWindow : Window
         VersionText.Text = $"v{GetType().Assembly.GetName().Version ?? new Version(0, 0, 0)}";
         monitorTimer.Tick += async (_, _) => await RefreshMonitorAsync();
         Loaded += async (_, _) => { await EnsureCredentialsAsync(); await RefreshMonitorAsync(); };
+        AddDiagnostic("Broadcaster UI started.");
+        AddDiagnostic($"Version: {GetType().Assembly.GetName().Version}");
         MusicVolume.ValueChanged += (_, _) => musicGainPercent = (int)Math.Round(MusicVolume.Value);
         MicVolume.ValueChanged += (_, _) => micGainPercent = (int)Math.Round(MicVolume.Value);
         MasterVolume.ValueChanged += (_, _) => masterGainPercent = (int)Math.Round(MasterVolume.Value);
@@ -66,6 +78,40 @@ public partial class MainWindow : Window
         LimiterBox.Checked += (_, _) => limiterEnabled = true;
         LimiterBox.Unchecked += (_, _) => limiterEnabled = false;
         Closed += (_, _) => http.Dispose();
+    }
+
+    void AddDiagnostic(string message)
+    {
+        var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}";
+        diagnosticEvents.Enqueue(line);
+        while (diagnosticEvents.Count > 500) diagnosticEvents.TryDequeue(out _);
+        lastError = message.Contains("error", StringComparison.OrdinalIgnoreCase) ||
+                    message.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
+                    message.Contains("closed", StringComparison.OrdinalIgnoreCase) ||
+                    message.Contains("disconnect", StringComparison.OrdinalIgnoreCase)
+                    ? message : lastError;
+    }
+
+    string GetDiagnosticLog() => string.Join(Environment.NewLine, diagnosticEvents);
+
+    DiagnosticsSnapshot GetDiagnosticsSnapshot()
+    {
+        var uptime = liveStartedAt == default || !running
+            ? "—"
+            : (DateTime.Now - liveStartedAt).ToString(@"hh\:mm\:ss");
+        var connection = running
+            ? (audioConnection is null ? "RECONNECTING" : lastConnectionState)
+            : "OFFLINE";
+        var audioFlow = running
+            ? ((DateTime.Now - lastAudioAt).TotalSeconds < 2 ? "HEALTHY" : "NO RECENT AUDIO")
+            : "IDLE";
+        return new DiagnosticsSnapshot(connection, audioFlow, reconnectCount, uptime, Interlocked.Read(ref framesSent), Interlocked.Read(ref bytesSent));
+    }
+
+    void DiagnosticsButton_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new DiagnosticsWindow(GetDiagnosticLog, GetDiagnosticsSnapshot) { Owner = this };
+        window.Show();
     }
 
     static string QuoteArg(string value) => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
@@ -367,7 +413,9 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(liveKey))
             throw new InvalidOperationException("USALB could not create broadcaster credentials. Check the server connection.");
 
+        AddDiagnostic($"GO LIVE requested. Inputs: systemAudio={useSystemAudio}, microphone={useMicrophone}.");
         StatusText.Text = "Connecting to USALB…";
+        lastConnectionState = "CONNECTING";
         try
         {
             token.ThrowIfCancellationRequested();
@@ -392,8 +440,16 @@ public partial class MainWindow : Window
                 microphone.StartRecording();
             }
 
+            AddDiagnostic($"Opening broadcaster WebSocket: {liveIngestUri}");
             audioConnection = await ConnectAudioAsync(liveIngestUri, liveKey, token);
             running = true;
+            liveStartedAt = DateTime.Now;
+            framesSent = 0;
+            bytesSent = 0;
+            lastAudioAt = DateTime.Now;
+            lastConnectionState = "CONNECTED";
+            lastAudioState = "FLOWING";
+            AddDiagnostic("Broadcaster WebSocket connected and server returned READY.");
             LiveButton.Content = "STOP LIVE";
             LiveStateText.Text = "LIVE";
             StatusText.Text = "LIVE · persistent source → USALB stream";
@@ -404,13 +460,16 @@ public partial class MainWindow : Window
         {
             try { if (audioConnection is not null) await audioConnection.DisposeAsync(); } catch { }
             audioConnection = null;
+            AddDiagnostic("GO LIVE failed: " + ex.GetBaseException().Message);
+            lastConnectionState = "ERROR";
             throw new InvalidOperationException($"USALB connection failed: {ex.GetBaseException().Message}", ex);
         }
     }
 
     async Task<PcmWebSocketConnection> ConnectAudioAsync(Uri uri, string key, CancellationToken token)
     {
-        return await PcmWebSocketConnection.ConnectAsync(uri, key, SampleRate, Channels, token);
+        return await PcmWebSocketConnection.ConnectAsync(uri, key, SampleRate, Channels, token,
+            message => AddDiagnostic(message));
     }
 
     async Task<bool> ReconnectAsync(CancellationToken token)
@@ -423,10 +482,15 @@ public partial class MainWindow : Window
             try
             {
                 await Dispatcher.InvokeAsync(() => StatusText.Text = "Reconnecting to USALB…");
+                AddDiagnostic("Reconnect attempt started.");
                 var connection = await ConnectAudioAsync(uri, liveKey, token);
                 var old = audioConnection;
                 audioConnection = connection;
                 if (old is not null) { try { await old.DisposeAsync(); } catch { } }
+                reconnectCount++;
+                lastConnectionState = "CONNECTED";
+                lastAudioAt = DateTime.Now;
+                AddDiagnostic($"Reconnect successful. Reconnect count: {reconnectCount}.");
                 await Dispatcher.InvokeAsync(() => {
                     LiveStateText.Text = "LIVE";
                     StatusText.Text = "LIVE · reconnected automatically";
@@ -437,6 +501,8 @@ public partial class MainWindow : Window
             catch (Exception ex)
             {
                 var message = ex.GetBaseException().Message;
+                lastConnectionState = "RECONNECTING";
+                AddDiagnostic("Reconnect failed: " + message);
                 try { await Dispatcher.InvokeAsync(() => { if (running) StatusText.Text = "Connection lost · " + message; }); } catch { }
                 try { await Task.Delay(1000, token); } catch { return false; }
             }
@@ -513,13 +579,20 @@ public partial class MainWindow : Window
                 try
                 {
                     await activeConnection.SendAudioAsync(output, token);
+                    Interlocked.Increment(ref framesSent);
+                    Interlocked.Add(ref bytesSent, output.Length);
+                    lastAudioAt = DateTime.Now;
+                    lastAudioState = "FLOWING";
                 }
-                catch (Exception) when (!token.IsCancellationRequested)
+                catch (Exception ex) when (!token.IsCancellationRequested)
                 {
                     if (ReferenceEquals(audioConnection, activeConnection))
                     {
                         try { await activeConnection.DisposeAsync(); } catch { }
                         audioConnection = null;
+                        lastConnectionState = "RECONNECTING";
+                        lastAudioState = "WAITING";
+                        AddDiagnostic("Broadcaster WebSocket disconnected while sending audio: " + ex.GetBaseException().Message);
                     }
                     continue;
                 }
@@ -542,6 +615,9 @@ public partial class MainWindow : Window
         catch (ObjectDisposedException) { }
         catch (Exception ex)
         {
+            AddDiagnostic("Broadcast loop error: " + ex.GetBaseException().Message);
+            lastConnectionState = "ERROR";
+            lastAudioState = "ERROR";
             if (!IsClosing) await Dispatcher.InvokeAsync(() => { if (running) StatusText.Text = "Broadcast error: " + ex.Message; });
         }
     }
@@ -559,6 +635,7 @@ public partial class MainWindow : Window
         if (Interlocked.Exchange(ref stopping, 1) != 0) return;
         try
         {
+            if (running) AddDiagnostic("Broadcast stopping.");
             running = false;
             monitorTimer.Stop();
             var cts = sessionCts;
@@ -574,6 +651,8 @@ public partial class MainWindow : Window
             try { cts?.Dispose(); } catch { }
             loopback = null; microphone = null; musicResampler = null; micResampler = null;
             musicBuffer = null; micBuffer = null; musicSamples = null; micSamples = null; sessionCts = null;
+            lastConnectionState = "OFFLINE";
+            lastAudioState = "IDLE";
             if (IsLoaded && !IsClosing) { LiveButton.Content = "GO LIVE"; LiveStateText.Text = "OFFLINE"; StatusText.Text = "Ready — opening this app does not stream."; }
         }
         finally { Interlocked.Exchange(ref stopping, 0); }
@@ -591,6 +670,7 @@ public partial class MainWindow : Window
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             var root = doc.RootElement;
             var state = root.GetProperty("state").GetString() ?? "OFFLINE";
+            lastConnectionState = state;
             var listeners = root.GetProperty("listenerCount").GetInt32();
             ListenerCountText.Text = listeners.ToString();
             ConnectionText.Text = state;
@@ -603,11 +683,13 @@ public partial class MainWindow : Window
                 TitleText.Text = track.GetProperty("title").GetString() ?? "—";
             }
             FooterText.Text = "Control Room · monitoring every 3 seconds";
+            if (running && state != "OFFLINE") AddDiagnostic($"Server health: {state}, listeners={listeners}, bitrate={BitrateText.Text}, sampleRate={SampleRateText.Text}");
         }
-        catch
+        catch (Exception ex)
         {
             ConnectionText.Text = "SERVER UNREACHABLE";
             FooterText.Text = "Could not reach USALB server";
+            if (running) AddDiagnostic("Server monitor error: " + ex.GetBaseException().Message);
         }
     }
 
@@ -633,9 +715,14 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     bool disposed;
 
-    PcmWebSocketConnection(ClientWebSocket socket) { this.socket = socket; }
+    readonly Action<string> diagnostic;
+    PcmWebSocketConnection(ClientWebSocket socket, Action<string> diagnostic)
+    {
+        this.socket = socket;
+        this.diagnostic = diagnostic;
+    }
 
-    public static async Task<PcmWebSocketConnection> ConnectAsync(Uri uri, string key, int sampleRate, int channels, CancellationToken token)
+    public static async Task<PcmWebSocketConnection> ConnectAsync(Uri uri, string key, int sampleRate, int channels, CancellationToken token, Action<string> diagnostic)
     {
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(12));
@@ -644,7 +731,9 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
 
         try
         {
+            diagnostic($"WebSocket TCP/HTTP upgrade connecting to {uri.Host}{uri.AbsolutePath}.");
             await ws.ConnectAsync(uri, timeoutCts.Token);
+            diagnostic("WebSocket transport connected.");
 
             var start = JsonSerializer.Serialize(new
             {
@@ -661,6 +750,7 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
             if (result.MessageType == WebSocketMessageType.Close)
             {
                 var reason = result.CloseStatusDescription ?? "No close reason supplied.";
+                diagnostic($"Server closed broadcaster during handshake. code={result.CloseStatus}, reason={reason}");
                 throw new IOException($"USALB live relay closed the broadcaster ({result.CloseStatus}): {reason}");
             }
 
@@ -668,17 +758,20 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
             if (!message.Contains("\"type\":\"ready\"", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException($"USALB live relay rejected the broadcaster: {message}");
 
-            var connection = new PcmWebSocketConnection(ws);
+            diagnostic("Server READY received; PCM audio can start.");
+            var connection = new PcmWebSocketConnection(ws, diagnostic);
             connection.StartReceiveMonitor();
             return connection;
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
+            diagnostic("WebSocket connect timeout after 12 seconds.");
             ws.Dispose();
             throw new TimeoutException("USALB broadcaster WebSocket connection timed out after 12 seconds.");
         }
-        catch
+        catch (Exception ex)
         {
+            diagnostic("WebSocket connect error: " + ex.GetBaseException().Message);
             ws.Dispose();
             throw;
         }
@@ -697,6 +790,7 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
                         var reason = result.CloseStatusDescription ?? "No close reason supplied.";
+                        diagnostic($"SERVER CLOSED WEBSOCKET. code={result.CloseStatus}, reason={reason}");
                         disconnectSignal.TrySetResult(new IOException($"USALB live relay closed the connection ({result.CloseStatus}): {reason}"));
                         try { socket.Abort(); } catch { }
                         return;
@@ -706,7 +800,14 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
                     {
                         var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
                         if (message.Contains("\"type\":\"error\"", StringComparison.OrdinalIgnoreCase))
+                        {
+                            diagnostic("SERVER ERROR MESSAGE: " + message);
                             disconnectSignal.TrySetResult(new IOException("USALB live relay reported an error: " + message));
+                        }
+                        else if (message.Contains("\"type\":\"heartbeat\"", StringComparison.OrdinalIgnoreCase))
+                        {
+                            diagnostic("Server heartbeat received.");
+                        }
                     }
 
                     while (!result.EndOfMessage)
@@ -715,7 +816,11 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                if (!disposed) disconnectSignal.TrySetResult(ex);
+                if (!disposed)
+                {
+                    diagnostic("WEBSOCKET RECEIVE ERROR: " + ex.GetBaseException().Message);
+                    disconnectSignal.TrySetResult(ex);
+                }
             }
         });
     }
@@ -736,6 +841,7 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
     {
         try { socket.Abort(); } catch { }
         try { socket.Dispose(); } catch { }
+        diagnostic("Broadcaster socket aborted locally.");
         disconnectSignal.TrySetResult(new IOException("Broadcaster socket aborted."));
     }
 
