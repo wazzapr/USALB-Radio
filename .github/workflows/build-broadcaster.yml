@@ -44,6 +44,164 @@ jobs:
         shell: powershell
         run: choco install innosetup --no-progress -y
 
+      - name: Sync installer version
+        shell: powershell
+        run: |
+          [xml]$project = Get-Content USALBBroadcaster.csproj
+          $version = $project.Project.PropertyGroup.Version
+          if ([string]::IsNullOrWhiteSpace($version)) { throw "Broadcaster version is missing." }
+          $iss = Get-Content installer.iss -Raw
+          $iss = [regex]::Replace($iss, '#define MyAppVersion ".*?"', '#define MyAppVersion "' + $version + '"')
+          $iss = [regex]::Replace($iss, 'VersionInfoVersion=.*', 'VersionInfoVersion=' + $version + '.0')
+          $iss = [regex]::Replace($iss, 'VersionInfoTextVersion=.*', 'VersionInfoTextVersion=' + $version)
+          $iss = [regex]::Replace($iss, 'VersionInfoProductVersion=.*', 'VersionInfoProductVersion=' + $version + '.0')
+          Set-Content -Path installer.iss -Value $iss
+
+      - name: Validate release notes
+        shell: powershell
+        run: |
+          [xml]$project = Get-Content USALBBroadcaster.csproj
+          $version = $project.Project.PropertyGroup.Version
+          $changelog = Get-Content CHANGELOG.md -Raw
+          if ($changelog -notmatch ('(?m)^## ' + [regex]::Escape($version) + '\s*
+
+      - name: Create portable ZIP
+        shell: powershell
+        run: |
+          Set-Content -Path "publish\README.txt" -Value "USALB Broadcaster. Run USALB.Broadcaster.exe."
+          Compress-Archive -Path "publish\*" -DestinationPath "$env:GITHUB_WORKSPACE\USALB-Broadcaster-Portable.zip" -Force
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: USALB-Broadcaster-Setup
+          path: broadcaster/windows/installer-output/USALB-Broadcaster-Setup.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: USALB-Broadcaster-Portable
+          path: USALB-Broadcaster-Portable.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Read broadcaster version
+        id: version
+        shell: powershell
+        run: |
+          [xml]$project = Get-Content USALBBroadcaster.csproj
+          $version = $project.Project.PropertyGroup.Version
+          if ([string]::IsNullOrWhiteSpace($version)) { throw "Broadcaster version is missing." }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Prepare release notes
+        id: release_notes
+        shell: powershell
+        run: |
+          [xml]$project = Get-Content USALBBroadcaster.csproj
+          $version = $project.Project.PropertyGroup.Version
+          $lines = Get-Content CHANGELOG.md
+          $start = -1
+          $end = $lines.Count
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match ('^## ' + [regex]::Escape($version) + '\s*
+        with:
+          tag_name: broadcaster-latest
+          name: USALB Broadcaster ${{ steps.version.outputs.version }}
+          body: ${{ steps.release_notes.outputs.body }}
+          files: |
+            broadcaster/windows/installer-output/USALB-Broadcaster-Setup.exe
+            USALB-Broadcaster-Portable.zip
+          make_latest: true
+          prerelease: false
+          fail_on_unmatched_files: true
+)) {
+            throw "CHANGELOG.md does not contain a release section for broadcaster v$version."
+          }
+
+      - name: Build Windows installer
+        shell: powershell
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+
+      - name: Create portable ZIP
+        shell: powershell
+        run: |
+          Set-Content -Path "publish\README.txt" -Value "USALB Broadcaster. Run USALB.Broadcaster.exe."
+          Compress-Archive -Path "publish\*" -DestinationPath "$env:GITHUB_WORKSPACE\USALB-Broadcaster-Portable.zip" -Force
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: USALB-Broadcaster-Setup
+          path: broadcaster/windows/installer-output/USALB-Broadcaster-Setup.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: USALB-Broadcaster-Portable
+          path: USALB-Broadcaster-Portable.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Read broadcaster version
+        id: version
+        shell: powershell
+        run: |
+          [xml]$project = Get-Content USALBBroadcaster.csproj
+          $version = $project.Project.PropertyGroup.Version
+          if ([string]::IsNullOrWhiteSpace($version)) { throw "Broadcaster version is missing." }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: broadcaster-latest
+          name: USALB Broadcaster ${{ steps.version.outputs.version }}
+          body: |
+            Windows installer and portable build of USALB Broadcaster.
+            Existing installations can use CHECK FOR UPDATES for an in-place update.
+            New installations can use USALB-Broadcaster-Setup.exe.
+          files: |
+            broadcaster/windows/installer-output/USALB-Broadcaster-Setup.exe
+            USALB-Broadcaster-Portable.zip
+          make_latest: true
+          prerelease: false
+          fail_on_unmatched_files: true
+)) { $start = $i; break }
+          }
+          if ($start -lt 0) { throw "Release notes for v$version were not found." }
+          for ($i = $start + 1; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^## ') { $end = $i; break }
+          }
+          $notes = ($lines[$start..($end - 1)] -join "`n").Trim()
+          "body<<USALB_RELEASE_NOTES" >> $env:GITHUB_OUTPUT
+          $notes >> $env:GITHUB_OUTPUT
+          "USALB_RELEASE_NOTES" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: broadcaster-latest
+          name: USALB Broadcaster ${{ steps.version.outputs.version }}
+          body: |
+            Windows installer and portable build of USALB Broadcaster.
+            Existing installations can use CHECK FOR UPDATES for an in-place update.
+            New installations can use USALB-Broadcaster-Setup.exe.
+          files: |
+            broadcaster/windows/installer-output/USALB-Broadcaster-Setup.exe
+            USALB-Broadcaster-Portable.zip
+          make_latest: true
+          prerelease: false
+          fail_on_unmatched_files: true
+)) {
+            throw "CHANGELOG.md does not contain a release section for broadcaster v$version."
+          }
+
       - name: Build Windows installer
         shell: powershell
         run: |
