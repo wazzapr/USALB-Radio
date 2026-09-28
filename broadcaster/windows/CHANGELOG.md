@@ -1,5 +1,9 @@
 # USALB Broadcaster Changelog
 
+## 1.0.18
+- Adds a 1.5 second forward audio cushion before initial playback and after automatic WebSocket reconnects.
+- Uses the existing captured audio buffer to absorb short reconnects without replaying or duplicating audio.
+
 ## 1.0.17
 - Added a Live Diagnostics window with connection health, audio-flow health, reconnect count, uptime, frames and bytes sent.
 - Captures WebSocket close codes, close reasons, server error messages, receive errors, reconnect failures, and broadcast-loop errors.
