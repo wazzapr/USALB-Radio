@@ -1,6 +1,7 @@
 # USALB Broadcaster Changelog
 
 ## 1.0.20
+- Uses the exact main USALB station logo inside the Broadcaster and as the Windows application/installer icon.
 - Makes the 4:30 WebSocket rotation overlap the old connection and hand off on the first PCM frame without waiting for the 1.5-second forward audio cushion.
 
 ## 1.0.19
