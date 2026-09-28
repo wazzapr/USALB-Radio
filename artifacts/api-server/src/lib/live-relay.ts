@@ -11,13 +11,19 @@ const LIVE_SOCKET_PATH = "/api/live/ws";
 const PCM_MAGIC = Buffer.from([0x50, 0x43, 0x4d, 0x31]);
 // Keep roughly 10–13 seconds of 320 kbps MP3 for a new listener. This gives the browser a safety cushion without changing the live relay timeline.
 const MAX_RECENT_BYTES = 512 * 1024;
+// Public listeners intentionally play a little behind the encoder. This gives
+// the server enough queued audio to hide short broadcaster reconnects without
+// replaying or overlapping music. A longer broadcaster outage than this still
+// becomes audible, because the server cannot invent missing audio.
+const LISTENER_BUFFER_MS = 2500;
 const QUALITY_PATHS = new Map<string, 320>([
   ["/api/live/stream", 320],
   ["/api/radio-stream", 320],
   ["/api/live/stream-320", 320],
 ]);
 type Quality = 320;
-type Encoder = { bitrate: Quality; process: ChildProcessWithoutNullStreams; recentChunks: Buffer[]; recentBytes: number };
+type TimedChunk = { sequence: number; at: number; data: Buffer };
+type Encoder = { bitrate: Quality; process: ChildProcessWithoutNullStreams; recentChunks: Buffer[]; recentBytes: number; timedChunks: TimedChunk[]; nextChunkSequence: number };
 const encoders = new Map<Quality, Encoder>();
 let broadcaster: WebSocket | null = null;
 let httpBroadcaster: IncomingMessage | null = null;
@@ -39,6 +45,8 @@ let lastResetReason: string | null = null;
 let listenerSequence = 0;
 const listeners = new Map<ServerResponse, Quality>();
 const listenerIds = new Map<ServerResponse, number>();
+const listenerCursors = new Map<ServerResponse, number>();
+const listenerTimers = new Map<ServerResponse, NodeJS.Timeout>();
 const wsListeners = new Set<WebSocket>();
 // HTTP chunk boundaries are not guaranteed to match broadcaster audio frames.
 // Keep a small framing buffer so a PCM1 header split across TCP chunks is not lost.
@@ -59,11 +67,73 @@ function rawBuffer(data: RawData): Buffer {
 }
 
 function rememberEncoder(encoder: Encoder, chunk: Buffer): void {
-  encoder.recentChunks.push(Buffer.from(chunk));
-  encoder.recentBytes += chunk.length;
+  const data = Buffer.from(chunk);
+  encoder.recentChunks.push(data);
+  encoder.recentBytes += data.length;
+  encoder.timedChunks.push({
+    sequence: encoder.nextChunkSequence++,
+    at: Date.now(),
+    data,
+  });
+
   while (encoder.recentBytes > MAX_RECENT_BYTES && encoder.recentChunks.length > 1) {
     const removed = encoder.recentChunks.shift();
     if (removed) encoder.recentBytes -= removed.length;
+  }
+
+  const oldestKept = encoder.recentChunks[0];
+  if (oldestKept) {
+    const firstIndex = encoder.timedChunks.findIndex((entry) => entry.data === oldestKept);
+    if (firstIndex > 0) encoder.timedChunks.splice(0, firstIndex);
+  }
+}
+
+function pumpListener(response: ServerResponse, encoder: Encoder): void {
+  if (!listeners.has(response) || response.writableEnded || response.destroyed) return;
+  const cursor = listenerCursors.get(response);
+  if (cursor === undefined) return;
+
+  let index = encoder.timedChunks.findIndex((entry) => entry.sequence >= cursor);
+  if (index < 0) return;
+
+  const now = Date.now();
+  while (index < encoder.timedChunks.length) {
+    const entry = encoder.timedChunks[index];
+    if (entry.sequence < (listenerCursors.get(response) ?? entry.sequence)) {
+      index += 1;
+      continue;
+    }
+    if (entry.at + LISTENER_BUFFER_MS > now) break;
+
+    try {
+      response.write(entry.data);
+      listenerCursors.set(response, entry.sequence + 1);
+    } catch {
+      cleanupListener(response);
+      return;
+    }
+    index += 1;
+  }
+}
+
+function scheduleListener(response: ServerResponse, encoder: Encoder): void {
+  const existing = listenerTimers.get(response);
+  if (existing) clearInterval(existing);
+  const timer = setInterval(() => pumpListener(response, encoder), 20);
+  listenerTimers.set(response, timer);
+  pumpListener(response, encoder);
+}
+
+function cleanupListener(response: ServerResponse): void {
+  const timer = listenerTimers.get(response);
+  if (timer) clearInterval(timer);
+  listenerTimers.delete(response);
+  listenerCursors.delete(response);
+  const id = listenerIds.get(response);
+  listenerIds.delete(response);
+  listeners.delete(response);
+  if (id !== undefined) {
+    console.info(`[USALB relay] listener disconnected: id=${id} listeners=${listeners.size} writableEnded=${response.writableEnded} destroyed=${response.destroyed}`);
   }
 }
 
@@ -74,7 +144,7 @@ function spawnEncoder(bitrate: Quality): Encoder {
     "-vn", "-codec:a", "libmp3lame", "-b:a", `${bitrate}k`, "-ar", "44100", "-ac", "2",
     "-f", "mp3", "-flush_packets", "1", "pipe:1",
   ], { stdio: ["pipe", "pipe", "pipe"] });
-  const encoder: Encoder = { bitrate, process: child, recentChunks: [], recentBytes: 0 };
+  const encoder: Encoder = { bitrate, process: child, recentChunks: [], recentBytes: 0, timedChunks: [], nextChunkSequence: 1 };
   child.stdout.on("data", (chunk: Buffer) => {
     lastAudioAt = new Date();
     totalBytes += chunk.length;
@@ -82,8 +152,7 @@ function spawnEncoder(bitrate: Quality): Encoder {
     rememberEncoder(encoder, chunk);
     for (const [response, quality] of listeners) {
       if (quality !== bitrate) continue;
-      if (response.writableEnded || response.destroyed) { listeners.delete(response); continue; }
-      try { response.write(chunk); } catch { listeners.delete(response); }
+      pumpListener(response, encoder);
     }
   });
   child.stderr.on("data", (chunk) => { const message = chunk.toString().trim(); if (message) console.error(`[USALB ffmpeg ${bitrate}k] ${message}`); });
@@ -151,8 +220,7 @@ function relay(chunk: Buffer): void {
   rememberEncoder(encoder, payload);
   for (const [response, quality] of listeners) {
     if (quality !== 320) continue;
-    if (response.writableEnded || response.destroyed) { listeners.delete(response); continue; }
-    try { response.write(payload); } catch { listeners.delete(response); }
+    pumpListener(response, encoder);
   }
 }
 
@@ -202,7 +270,11 @@ function reset(reason = "reset"): void {
   for (const encoder of encoders.values()) { try { encoder.process.stdin.end(); } catch {} try { encoder.process.kill("SIGTERM"); } catch {} }
   encoders.clear();
   for (const response of listeners.keys()) { try { response.end(); } catch {} }
+  for (const timer of listenerTimers.values()) clearInterval(timer);
   listeners.clear();
+  listenerIds.clear();
+  listenerCursors.clear();
+  listenerTimers.clear();
 }
 
 function sameOrigin(req: IncomingMessage): boolean {
@@ -544,20 +616,17 @@ export function handleLiveStreamRequest(req: IncomingMessage, res: ServerRespons
   const listenerId = ++listenerSequence;
   listeners.set(res, selectedQuality);
   listenerIds.set(res, listenerId);
-  console.info(`[USALB relay] listener connected: id=${listenerId} quality=${selectedQuality} listeners=${listeners.size} recentBytes=${encoder.recentBytes}`);
+  const targetAt = Date.now() - LISTENER_BUFFER_MS;
+  const firstTimedChunk = [...encoder.timedChunks].reverse().find((entry) => entry.at <= targetAt);
+  listenerCursors.set(res, firstTimedChunk?.sequence ?? encoder.timedChunks[0]?.sequence ?? encoder.nextChunkSequence);
+  console.info(`[USALB relay] listener connected: id=${listenerId} quality=${selectedQuality} listeners=${listeners.size} recentBytes=${encoder.recentBytes} delayMs=${LISTENER_BUFFER_MS}`);
   res.socket?.setKeepAlive(true, 30_000);
   res.socket?.setNoDelay(true);
-
-  for (const chunk of encoder.recentChunks) {
-    if (!res.writableEnded) res.write(chunk);
-  }
+  scheduleListener(res, encoder);
 
   const cleanup = () => {
     if (!listenerIds.has(res)) return;
-    const id = listenerIds.get(res)!;
-    listenerIds.delete(res);
-    listeners.delete(res);
-    console.info(`[USALB relay] listener disconnected: id=${id} listeners=${listeners.size} writableEnded=${res.writableEnded} destroyed=${res.destroyed}`);
+    cleanupListener(res);
   };
   req.once("close", cleanup);
   res.once("close", cleanup);
