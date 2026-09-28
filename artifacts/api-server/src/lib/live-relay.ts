@@ -47,7 +47,9 @@ let pcmPending = Buffer.alloc(0);
 let broadcasterDisconnectTimer: NodeJS.Timeout | null = null;
 const BROADCASTER_RECONNECT_GRACE_MS = 30_000;
 const BROADCASTER_WS_PING_MS = 20_000;
-// Server-side handoff protocol: keep the current broadcaster authoritative until the replacement has sent its first PCM frame.\nconst SEAMLESS_HANDOFF_PROTOCOL = "first-pcm-v2";\n
+// Server-side handoff protocol: keep the current broadcaster authoritative until the replacement has sent its first PCM frame.
+const SEAMLESS_HANDOFF_PROTOCOL = "first-pcm-v2";
+
 function sendJson(socket: WebSocket, payload: Record<string, unknown>): void {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
 }
