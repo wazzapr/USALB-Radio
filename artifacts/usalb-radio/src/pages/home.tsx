@@ -38,10 +38,35 @@ export default function Home() {
   const shouldReconnectRef = useRef(false);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
+  const reconnectGenerationRef = useRef(0);
+  const lastPlaybackProgressRef = useRef(0);
+  const lastPlaybackProgressAtRef = useRef(0);
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = muted ? 0 : volume;
   }, [muted, volume]);
+
+  useEffect(() => {
+    if (!shouldReconnectRef.current) return;
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const watchdog = window.setInterval(() => {
+      if (!shouldReconnectRef.current || !audio || audio.paused) return;
+      const now = Date.now();
+      const currentTime = audio.currentTime;
+      if (Number.isFinite(currentTime) && currentTime > lastPlaybackProgressRef.current + 0.05) {
+        lastPlaybackProgressRef.current = currentTime;
+        lastPlaybackProgressAtRef.current = now;
+        return;
+      }
+      if (lastPlaybackProgressAtRef.current > 0 && now - lastPlaybackProgressAtRef.current >= 8000) {
+        scheduleReconnect();
+      }
+    }, 2000);
+
+    return () => window.clearInterval(watchdog);
+  }, [playing, reconnecting]);
 
   useEffect(() => {
     const handleInstallPrompt = (event: Event) => {
@@ -107,16 +132,28 @@ export default function Home() {
         setReconnecting(false);
         setError("");
         reconnectAttemptRef.current = 0;
+        lastPlaybackProgressRef.current = audio.currentTime;
+        lastPlaybackProgressAtRef.current = Date.now();
         if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
       };
       audio.onwaiting = () => {
-        if (shouldReconnectRef.current) setReconnecting(true);
+        if (shouldReconnectRef.current) {
+          setReconnecting(true);
+          window.setTimeout(() => {
+            if (!shouldReconnectRef.current || audio !== audioRef.current) return;
+            const stalledFor = Date.now() - lastPlaybackProgressAtRef.current;
+            if (audio.readyState < 3 && stalledFor >= 4000) scheduleReconnect();
+          }, 4000);
+        }
       };
       audio.onstalled = () => {
         if (shouldReconnectRef.current) {
+          setReconnecting(true);
           window.setTimeout(() => {
-            if (shouldReconnectRef.current && audio.readyState < 3) scheduleReconnect();
-          }, 5000);
+            if (!shouldReconnectRef.current || audio !== audioRef.current) return;
+            const stalledFor = Date.now() - lastPlaybackProgressAtRef.current;
+            if (audio.readyState < 3 || stalledFor >= 4000) scheduleReconnect();
+          }, 3000);
         }
       };
       audio.onended = () => {
@@ -144,12 +181,20 @@ export default function Home() {
     if (!shouldReconnectRef.current || reconnectTimerRef.current !== null) return;
     const delay = Math.min(4, Math.max(1, 2 ** reconnectAttemptRef.current));
     reconnectAttemptRef.current += 1;
+    const generation = ++reconnectGenerationRef.current;
     setReconnecting(true);
     setPlaying(false);
     setLoading(true);
     setError(`Live connection interrupted. Reconnecting in ${delay} seconds…`);
     reconnectTimerRef.current = window.setTimeout(() => {
       reconnectTimerRef.current = null;
+      if (!shouldReconnectRef.current || generation !== reconnectGenerationRef.current) return;
+      const audio = audioRef.current;
+      if (audio) {
+        audio.pause();
+        audio.removeAttribute("src");
+        audio.load();
+      }
       startNativeStream();
     }, delay * 1000);
   };
