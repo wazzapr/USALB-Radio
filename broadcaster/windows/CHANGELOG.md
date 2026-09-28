@@ -1,5 +1,9 @@
 # USALB Broadcaster Changelog
 
+## 1.0.19
+- Pre-connects a replacement WebSocket before the recurring five-minute upstream connection termination, preserving automatic live recovery without waiting for the forced disconnect.
+
+
 ## 1.0.18
 - Adds a 1.5 second forward audio cushion before initial playback and after automatic WebSocket reconnects.
 - Uses the existing captured audio buffer to absorb short reconnects without replaying or duplicating audio.
