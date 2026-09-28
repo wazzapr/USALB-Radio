@@ -22,6 +22,7 @@ public partial class MainWindow : Window
 {
     const int SampleRate = 44100, Channels = 2, FrameMs = 20;
     const double ForwardAudioCushionSeconds = 1.5;
+    const double WebSocketRotationSeconds = 270;
     readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(5) };
     readonly DispatcherTimer monitorTimer = new() { Interval = TimeSpan.FromSeconds(3) };
 
@@ -51,6 +52,7 @@ public partial class MainWindow : Window
     long bytesSent;
     int reconnectCount;
     DateTime liveStartedAt;
+    DateTime audioConnectionConnectedAt;
     DateTime lastAudioAt;
     string lastConnectionState = "OFFLINE";
     string lastAudioState = "IDLE";
@@ -446,6 +448,7 @@ public partial class MainWindow : Window
             audioConnection = await ConnectAudioAsync(liveIngestUri, liveKey, token);
             running = true;
             liveStartedAt = DateTime.Now;
+            audioConnectionConnectedAt = DateTime.Now;
             framesSent = 0;
             bytesSent = 0;
             lastAudioAt = DateTime.Now;
@@ -488,6 +491,7 @@ public partial class MainWindow : Window
                 var connection = await ConnectAudioAsync(uri, liveKey, token);
                 var old = audioConnection;
                 audioConnection = connection;
+                audioConnectionConnectedAt = DateTime.Now;
                 if (old is not null) { try { await old.DisposeAsync(); } catch { } }
                 reconnectCount++;
                 lastConnectionState = "CONNECTED";
@@ -614,6 +618,40 @@ public partial class MainWindow : Window
                 }
                 var activeConnection = audioConnection;
                 if (activeConnection is null) continue;
+
+                // Replit/proxy infrastructure is consistently ending this long-lived
+                // WebSocket at about 5 minutes. Pre-connect a replacement before that
+                // point so the platform never gets the chance to terminate the active
+                // session unexpectedly. The server accepts the new broadcaster, keeps
+                // the live encoder/listeners alive, and the old socket is then closed.
+                if ((DateTime.Now - audioConnectionConnectedAt).TotalSeconds >= WebSocketRotationSeconds)
+                {
+                    try
+                    {
+                        AddDiagnostic("Planned WebSocket rotation started before the 5-minute connection limit.");
+                        var replacement = await ConnectAudioAsync(liveIngestUri!, liveKey, token);
+                        var previous = audioConnection;
+                        audioConnection = replacement;
+                        audioConnectionConnectedAt = DateTime.Now;
+                        reconnectCount++;
+                        lastConnectionState = "CONNECTED";
+                        AddDiagnostic($"Planned WebSocket rotation successful. Connection age was about {WebSocketRotationSeconds:0}s.");
+                        if (previous is not null && !ReferenceEquals(previous, replacement))
+                        {
+                            try { await previous.DisposeAsync(); } catch { }
+                        }
+                        await WaitForForwardAudioCushionAsync(token);
+                        activeConnection = replacement;
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
+                    catch (Exception ex)
+                    {
+                        AddDiagnostic("Planned WebSocket rotation failed; keeping current connection: " + ex.GetBaseException().Message);
+                        // Keep the existing connection alive. If the proxy closes it,
+                        // the normal reconnect path below will still recover automatically.
+                        activeConnection = audioConnection;
+                    }
+                }
                 try
                 {
                     await activeConnection.SendAudioAsync(output, token);
