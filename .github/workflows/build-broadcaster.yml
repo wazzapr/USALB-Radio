@@ -32,6 +32,47 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Prepare USALB application icon
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $sourcePath = Join-Path $env:GITHUB_WORKSPACE "broadcaster/windows/Assets/usalb-logo-transparent.png"
+          $iconPath = Join-Path $env:GITHUB_WORKSPACE "broadcaster/windows/Assets/usalb-radio.ico"
+          $src = [System.Drawing.Image]::FromFile($sourcePath)
+          try {
+            $bmp = New-Object System.Drawing.Bitmap 64,64
+            try {
+              $g = [System.Drawing.Graphics]::FromImage($bmp)
+              try {
+                $g.Clear([System.Drawing.Color]::Transparent)
+                $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+                $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+                $ratio = [Math]::Min(64.0 / $src.Width, 64.0 / $src.Height)
+                $w = [int]($src.Width * $ratio)
+                $h = [int]($src.Height * $ratio)
+                $x = [int]((64 - $w) / 2)
+                $y = [int]((64 - $h) / 2)
+                $g.DrawImage($src, $x, $y, $w, $h)
+              } finally { $g.Dispose() }
+              $hIcon = $bmp.GetHicon()
+              try {
+                $icon = [System.Drawing.Icon]::FromHandle($hIcon)
+                try { $stream = [System.IO.File]::Create($iconPath); try { $icon.Save($stream) } finally { $stream.Dispose() } }
+                finally { $icon.Dispose() }
+              } finally {
+                Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class IconCleanup {
+  [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr handle);
+}
+"@
+                [IconCleanup]::DestroyIcon($hIcon) | Out-Null
+              }
+            } finally { $bmp.Dispose() }
+          } finally { $src.Dispose() }
+
       - name: Restore
         run: dotnet restore USALBBroadcaster.csproj
 

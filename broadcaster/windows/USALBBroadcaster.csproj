@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>USALB.Broadcaster</AssemblyName>
+    <ApplicationIcon>Assets\usalb-radio.ico</ApplicationIcon>
     <RootNamespace>USALB.Broadcaster</RootNamespace>
     <PublishSingleFile>false</PublishSingleFile>
     <SelfContained>true</SelfContained>
@@ -19,6 +20,9 @@
     <AssemblyMetadata Include="BroadcasterBuild" Value="$(BroadcasterBuild)" />
     <Compile Remove="Updater/**/*.cs" />
     <None Remove="Updater/**/*.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Assets\usalb-logo-transparent.png" />
   </ItemGroup>
   <ItemGroup><PackageReference Include="NAudio" Version="2.2.1" /></ItemGroup>
 </Project>

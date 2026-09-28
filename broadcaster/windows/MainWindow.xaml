@@ -5,34 +5,7 @@
         MinWidth="1000" MinHeight="720" WindowStartupLocation="CenterScreen"
         Background="#090C11" Foreground="White">
 <Window.Resources>
-  <DrawingImage x:Key="UsalbLogoImage">
-    <DrawingImage.Drawing>
-      <DrawingGroup>
-        <GeometryDrawing Brush="#10252C" Geometry="M18,0 H402 A18,18 0 0 1 420,18 V102 A18,18 0 0 1 402,120 H18 A18,18 0 0 1 0,102 V18 A18,18 0 0 1 18,0 Z"/>
-        <GeometryDrawing Geometry="M60,32 A28,28 0 1 1 59.99,32">
-          <GeometryDrawing.Pen><Pen Brush="#E05947" Thickness="6"/></GeometryDrawing.Pen>
-        </GeometryDrawing>
-        <GeometryDrawing Geometry="M60,39 V81 M39,60 H81">
-          <GeometryDrawing.Pen><Pen Brush="#E6B85C" Thickness="6" StartLineCap="Round" EndLineCap="Round"/></GeometryDrawing.Pen>
-        </GeometryDrawing>
-        <GeometryDrawing Geometry="M111,82 V38 H126 C140,38 148,46 148,60 C148,74 140,82 126,82 H111 Z">
-          <GeometryDrawing.Pen><Pen Brush="#F5F0E8" Thickness="5" LineJoin="Round"/></GeometryDrawing.Pen>
-        </GeometryDrawing>
-        <GeometryDrawing Geometry="M166,82 V38 H184 C196,38 203,44 203,55 C203,66 196,72 184,72 H166 M184,72 L205,82">
-          <GeometryDrawing.Pen><Pen Brush="#F5F0E8" Thickness="5" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
-        </GeometryDrawing>
-        <GeometryDrawing Geometry="M222,82 L240,38 L258,82 M229,67 H251">
-          <GeometryDrawing.Pen><Pen Brush="#F5F0E8" Thickness="5" StartLineCap="Round" EndLineCap="Round"/></GeometryDrawing.Pen>
-        </GeometryDrawing>
-        <GeometryDrawing Geometry="M275,82 V38 H292 C305,38 312,44 312,55 C312,66 305,72 292,72 H275">
-          <GeometryDrawing.Pen><Pen Brush="#F5F0E8" Thickness="5" LineJoin="Round"/></GeometryDrawing.Pen>
-        </GeometryDrawing>
-        <GeometryDrawing Geometry="M331,38 V82 M331,60 H362 M362,38 V82 M383,38 V82">
-          <GeometryDrawing.Pen><Pen Brush="#F5F0E8" Thickness="5" StartLineCap="Round" EndLineCap="Round"/></GeometryDrawing.Pen>
-        </GeometryDrawing>
-      </DrawingGroup>
-    </DrawingImage.Drawing>
-  </DrawingImage>
+  <BitmapImage x:Key="UsalbLogoImage" UriSource="/USALB.Broadcaster;component/Assets/usalb-logo-transparent.png" />
 </Window.Resources>
 <Window.Icon>
   <StaticResource ResourceKey="UsalbLogoImage"/>

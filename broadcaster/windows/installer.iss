@@ -19,6 +19,7 @@ OutputBaseFilename=USALB-Broadcaster-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=Assets\usalb-radio.ico
 CloseApplications=yes
 RestartApplications=yes
 ArchitecturesAllowed=x64compatible
