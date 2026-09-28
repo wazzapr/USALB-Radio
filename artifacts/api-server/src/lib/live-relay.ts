@@ -20,6 +20,7 @@ type Quality = 320;
 type Encoder = { bitrate: Quality; process: ChildProcessWithoutNullStreams; recentChunks: Buffer[]; recentBytes: number };
 const encoders = new Map<Quality, Encoder>();
 let broadcaster: WebSocket | null = null;
+let pendingBroadcaster: WebSocket | null = null;
 let httpBroadcaster: IncomingMessage | null = null;
 let httpBroadcasterResponse: ServerResponse | null = null;
 let live = false;
@@ -183,6 +184,7 @@ function reset(reason = "reset"): void {
   lastResetReason = reason;
   console.info(`[USALB relay] reset: ${reason}; listeners=${listeners.size}; encodedChunks=${encodedChunks}; totalBytes=${totalBytes}`);
   broadcaster = null;
+  pendingBroadcaster = null;
   if (httpBroadcasterResponse && !httpBroadcasterResponse.writableEnded) {
     try { httpBroadcasterResponse.end(); } catch {}
   }
@@ -249,15 +251,26 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
     return;
   }
 
-  if (broadcaster && broadcaster !== socket) {
-    try { broadcaster.close(1012, "Replaced by a new broadcaster"); } catch {}
+  const previousBroadcaster = broadcaster;
+  if (pendingBroadcaster && pendingBroadcaster !== socket) {
+    try { pendingBroadcaster.close(1012, "Replaced by a newer broadcaster"); } catch {}
   }
 
   cancelBroadcasterDisconnectGrace();
   const resumingExistingBroadcast = live && encoders.has(320);
-  broadcaster = socket;
-  broadcasterConnectedAt = new Date();
-  console.info(`[USALB relay] broadcaster connected; resuming=${resumingExistingBroadcast}`);
+
+  // Keep the current source active while a planned replacement completes its
+  // handshake. The replacement becomes authoritative only on its first PCM
+  // frame, so listeners do not see a deliberate handoff gap.
+  if (previousBroadcaster && previousBroadcaster !== socket) {
+    pendingBroadcaster = socket;
+    console.info(`[USALB relay] broadcaster replacement connected; waiting for first PCM frame; resuming=${resumingExistingBroadcast}`);
+  } else {
+    broadcaster = socket;
+    pendingBroadcaster = null;
+    broadcasterConnectedAt = new Date();
+    console.info(`[USALB relay] broadcaster connected; resuming=${resumingExistingBroadcast}`);
+  }
 
   // Keep the long-lived broadcaster WebSocket active through reverse proxies.
   // This is a WebSocket control-frame ping only: it never terminates a healthy
@@ -277,7 +290,22 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
 
   socket.on("message", (data, isBinary) => {
     if (isBinary) {
-      if (live) relay(rawBuffer(data));
+      if (!live) return;
+
+      // Commit a planned replacement exactly when its first PCM frame arrives.
+      // The old broadcaster remains active until this event-loop turn.
+      if (pendingBroadcaster === socket && broadcaster !== socket) {
+        const previous = broadcaster;
+        pendingBroadcaster = null;
+        broadcaster = socket;
+        broadcasterConnectedAt = new Date();
+        console.info("[USALB relay] broadcaster handoff committed on first PCM frame.");
+        if (previous && previous !== socket) {
+          try { previous.close(1000, "Replaced after seamless broadcaster handoff"); } catch {}
+        }
+      }
+
+      if (broadcaster === socket) relay(rawBuffer(data));
       return;
     }
 
@@ -349,6 +377,11 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
     lastBroadcasterCloseReason = closeReason || null;
     const lifetimeMs = broadcasterConnectedAt ? Date.now() - broadcasterConnectedAt.getTime() : null;
     console.warn(`[USALB relay] broadcaster closed: code=${code} reason=${closeReason || "(none)"} lifetimeMs=${lifetimeMs ?? "unknown"} live=${live} listeners=${listeners.size} lastAudioAt=${lastAudioAt?.toISOString() ?? "none"}`);
+    if (pendingBroadcaster === socket) {
+      pendingBroadcaster = null;
+      console.warn("[USALB relay] pending broadcaster replacement closed before first PCM frame; keeping current broadcaster.");
+      return;
+    }
     if (broadcaster !== socket) return;
     broadcaster = null;
     // Do not take the radio offline for a transient network/proxy drop.
