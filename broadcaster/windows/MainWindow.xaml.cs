@@ -99,7 +99,7 @@ public partial class MainWindow : Window
     {
         var uptime = liveStartedAt == default || !running
             ? "—"
-            : (DateTime.Now - liveStartedAt).ToString(@"hh:mm:ss");
+            : (DateTime.Now - liveStartedAt).ToString(@"hh\:mm\:ss");
         var connection = running
             ? (audioConnection is null ? "RECONNECTING" : lastConnectionState)
             : "OFFLINE";
@@ -115,7 +115,7 @@ public partial class MainWindow : Window
         window.Show();
     }
 
-    static string QuoteArg(string value) => """ + value.Replace("\", "\\").Replace(""", "\"") + """;
+    static string QuoteArg(string value) => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
 
     sealed class SavedCredentials
     {
@@ -197,10 +197,10 @@ public partial class MainWindow : Window
 
     static string ParseReleaseVersion(string tag, string releaseName)
     {
-        var tagMatch = System.Text.RegularExpressions.Regex.Match(tag ?? "", @"d+.d+.d+(?:.d+)?");
+        var tagMatch = System.Text.RegularExpressions.Regex.Match(tag ?? "", @"\d+\.\d+\.\d+(?:\.\d+)?");
         if (tagMatch.Success) return tagMatch.Value;
 
-        var nameMatch = System.Text.RegularExpressions.Regex.Match(releaseName ?? "", @"d+.d+.d+(?:.d+)?");
+        var nameMatch = System.Text.RegularExpressions.Regex.Match(releaseName ?? "", @"\d+\.\d+\.\d+(?:\.\d+)?");
         if (nameMatch.Success) return nameMatch.Value;
 
         return "";
@@ -579,7 +579,7 @@ public partial class MainWindow : Window
                 {
                     musicEqL = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, treble)];
                     musicEqR = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, treble)];
-                    micEqL = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, treble)];
+                    micEqL = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, treble)];
                     micEqR = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, treble)];
                     lastBass = bass;
                     lastMid = mid;
