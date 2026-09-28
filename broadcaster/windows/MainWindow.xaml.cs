@@ -21,6 +21,7 @@ namespace USALB.Broadcaster;
 public partial class MainWindow : Window
 {
     const int SampleRate = 44100, Channels = 2, FrameMs = 20;
+    const double ForwardAudioCushionSeconds = 1.5;
     readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(5) };
     readonly DispatcherTimer monitorTimer = new() { Interval = TimeSpan.FromSeconds(3) };
 
@@ -98,7 +99,7 @@ public partial class MainWindow : Window
     {
         var uptime = liveStartedAt == default || !running
             ? "—"
-            : (DateTime.Now - liveStartedAt).ToString(@"hh\:mm\:ss");
+            : (DateTime.Now - liveStartedAt).ToString(@"hh:mm:ss");
         var connection = running
             ? (audioConnection is null ? "RECONNECTING" : lastConnectionState)
             : "OFFLINE";
@@ -114,7 +115,7 @@ public partial class MainWindow : Window
         window.Show();
     }
 
-    static string QuoteArg(string value) => "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+    static string QuoteArg(string value) => """ + value.Replace("\", "\\").Replace(""", "\"") + """;
 
     sealed class SavedCredentials
     {
@@ -196,10 +197,10 @@ public partial class MainWindow : Window
 
     static string ParseReleaseVersion(string tag, string releaseName)
     {
-        var tagMatch = System.Text.RegularExpressions.Regex.Match(tag ?? "", @"\d+\.\d+\.\d+(?:\.\d+)?");
+        var tagMatch = System.Text.RegularExpressions.Regex.Match(tag ?? "", @"d+.d+.d+(?:.d+)?");
         if (tagMatch.Success) return tagMatch.Value;
 
-        var nameMatch = System.Text.RegularExpressions.Regex.Match(releaseName ?? "", @"\d+\.\d+\.\d+(?:\.\d+)?");
+        var nameMatch = System.Text.RegularExpressions.Regex.Match(releaseName ?? "", @"d+.d+.d+(?:.d+)?");
         if (nameMatch.Success) return nameMatch.Value;
 
         return "";
@@ -217,6 +218,7 @@ public partial class MainWindow : Window
         }
         return "";
     }
+
     async void UpdateButton_Click(object sender, RoutedEventArgs e)
     {
         if (running)
@@ -449,7 +451,7 @@ public partial class MainWindow : Window
             lastAudioAt = DateTime.Now;
             lastConnectionState = "CONNECTED";
             lastAudioState = "FLOWING";
-            AddDiagnostic("Broadcaster WebSocket connected and server returned READY.");
+            AddDiagnostic($"Broadcaster WebSocket connected and server returned READY. Forward audio cushion target: {ForwardAudioCushionSeconds:0.0}s.");
             LiveButton.Content = "STOP LIVE";
             LiveStateText.Text = "LIVE";
             StatusText.Text = "LIVE · persistent source → USALB stream";
@@ -490,7 +492,8 @@ public partial class MainWindow : Window
                 reconnectCount++;
                 lastConnectionState = "CONNECTED";
                 lastAudioAt = DateTime.Now;
-                AddDiagnostic($"Reconnect successful. Reconnect count: {reconnectCount}.");
+                AddDiagnostic($"Reconnect successful. Reconnect count: {reconnectCount}. Waiting for forward audio cushion before resuming PCM.");
+                await WaitForForwardAudioCushionAsync(token);
                 await Dispatcher.InvokeAsync(() => {
                     LiveStateText.Text = "LIVE";
                     StatusText.Text = "LIVE · reconnected automatically";
@@ -516,6 +519,34 @@ public partial class MainWindow : Window
         return buffer.BufferedBytes / (double)buffer.WaveFormat.AverageBytesPerSecond;
     }
 
+    async Task WaitForForwardAudioCushionAsync(CancellationToken token)
+    {
+        if (musicBuffer is null && micBuffer is null) return;
+
+        var logged = false;
+        while (running && !token.IsCancellationRequested)
+        {
+            var musicSeconds = GetBufferedAudioSeconds(musicBuffer);
+            var micSeconds = GetBufferedAudioSeconds(micBuffer);
+            var availableSeconds = Math.Max(musicSeconds, micSeconds);
+
+            if (availableSeconds >= ForwardAudioCushionSeconds)
+            {
+                if (logged)
+                    AddDiagnostic($"Forward audio cushion ready: music={musicSeconds:0.00}s, mic={micSeconds:0.00}s.");
+                return;
+            }
+
+            if (!logged)
+            {
+                AddDiagnostic($"Building forward audio cushion: music={musicSeconds:0.00}s, mic={micSeconds:0.00}s, target={ForwardAudioCushionSeconds:0.0}s.");
+                logged = true;
+            }
+
+            await Task.Delay(50, token);
+        }
+    }
+
     async Task SendMixedAudioAsync(CancellationToken token)
     {
         var frameSamples = SampleRate * Channels * FrameMs / 1000;
@@ -527,6 +558,7 @@ public partial class MainWindow : Window
         try
         {
             var nextFrameAt = Stopwatch.GetTimestamp() + (long)(Stopwatch.Frequency * (FrameMs / 1000.0));
+            await WaitForForwardAudioCushionAsync(token);
             while (running && !token.IsCancellationRequested)
             {
                 if (audioConnection is null)
@@ -547,7 +579,7 @@ public partial class MainWindow : Window
                 {
                     musicEqL = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, treble)];
                     musicEqR = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, treble)];
-                    micEqL = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, treble)];
+                    micEqL = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, treble)];
                     micEqR = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, treble)];
                     lastBass = bass;
                     lastMid = mid;
