@@ -294,20 +294,27 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
     if (isBinary) {
       if (!live) return;
 
-      // Commit a planned replacement exactly when its first PCM frame arrives.
-      // The old broadcaster remains active until this event-loop turn.
+      // Commit a planned replacement on its first PCM frame, but relay that
+      // frame BEFORE closing the old source. This guarantees the live encoder
+      // sees continuous PCM at the exact handoff boundary.
       if (pendingBroadcaster === socket && broadcaster !== socket) {
         const previous = broadcaster;
         pendingBroadcaster = null;
         broadcaster = socket;
         broadcasterConnectedAt = new Date();
         console.info(`[USALB relay] broadcaster handoff committed on first PCM frame; handoff=${SEAMLESS_HANDOFF_PROTOCOL}.`);
+
+        // The first PCM frame belongs to the replacement. Feed it into the
+        // existing encoder first, then close the old WebSocket. Closing the
+        // old socket before relay() can introduce a scheduler/network gap.
+        relay(rawBuffer(data));
+
         if (previous && previous !== socket) {
           try { previous.close(1000, "Replaced after seamless broadcaster handoff"); } catch {}
         }
+      } else if (broadcaster === socket) {
+        relay(rawBuffer(data));
       }
-
-      if (broadcaster === socket) relay(rawBuffer(data));
       return;
     }
 
