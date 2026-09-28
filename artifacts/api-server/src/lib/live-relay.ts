@@ -29,7 +29,16 @@ let pcmChannels = 2;
 let startedAt: Date | null = null;
 let lastAudioAt: Date | null = null;
 let totalBytes = 0;
+let encodedChunks = 0;
+let encoderStartedAt: Date | null = null;
+let broadcasterConnectedAt: Date | null = null;
+let lastBroadcasterCloseAt: Date | null = null;
+let lastBroadcasterCloseCode: number | null = null;
+let lastBroadcasterCloseReason: string | null = null;
+let lastResetReason: string | null = null;
+let listenerSequence = 0;
 const listeners = new Map<ServerResponse, Quality>();
+const listenerIds = new Map<ServerResponse, number>();
 const wsListeners = new Set<WebSocket>();
 // HTTP chunk boundaries are not guaranteed to match broadcaster audio frames.
 // Keep a small framing buffer so a PCM1 header split across TCP chunks is not lost.
@@ -69,6 +78,7 @@ function spawnEncoder(bitrate: Quality): Encoder {
   child.stdout.on("data", (chunk: Buffer) => {
     lastAudioAt = new Date();
     totalBytes += chunk.length;
+    encodedChunks += 1;
     rememberEncoder(encoder, chunk);
     for (const [response, quality] of listeners) {
       if (quality !== bitrate) continue;
@@ -86,6 +96,8 @@ function startEncoders(): boolean {
   stopEncoders();
   try {
     encoders.set(320, spawnEncoder(320));
+    encoderStartedAt = new Date();
+    console.info("[USALB relay] encoder started: 320k MP3, 44100 Hz stereo");
     return true;
   } catch { stopEncoders(); return false; }
 }
@@ -166,8 +178,10 @@ function cancelBroadcasterDisconnectGrace(): void {
   }
 }
 
-function reset(): void {
+function reset(reason = "reset"): void {
   cancelBroadcasterDisconnectGrace();
+  lastResetReason = reason;
+  console.info(`[USALB relay] reset: ${reason}; listeners=${listeners.size}; encodedChunks=${encodedChunks}; totalBytes=${totalBytes}`);
   broadcaster = null;
   if (httpBroadcasterResponse && !httpBroadcasterResponse.writableEnded) {
     try { httpBroadcasterResponse.end(); } catch {}
@@ -179,6 +193,9 @@ function reset(): void {
   startedAt = null;
   lastAudioAt = null;
   totalBytes = 0;
+  encodedChunks = 0;
+  encoderStartedAt = null;
+  broadcasterConnectedAt = null;
   pcmPending = Buffer.alloc(0);
   for (const socket of wsListeners) { try { socket.close(1000, "Broadcast ended"); } catch {} }
   wsListeners.clear();
@@ -239,6 +256,8 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
   cancelBroadcasterDisconnectGrace();
   const resumingExistingBroadcast = live && encoders.has(320);
   broadcaster = socket;
+  broadcasterConnectedAt = new Date();
+  console.info(`[USALB relay] broadcaster connected; resuming=${resumingExistingBroadcast}`);
 
   // Keep the long-lived broadcaster WebSocket active through reverse proxies.
   // This is a WebSocket control-frame ping only: it never terminates a healthy
@@ -321,7 +340,13 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
     }
   });
 
-  socket.once("close", () => {
+  socket.once("close", (code, reason) => {
+    const closeReason = reason?.toString() || "";
+    lastBroadcasterCloseAt = new Date();
+    lastBroadcasterCloseCode = code;
+    lastBroadcasterCloseReason = closeReason || null;
+    const lifetimeMs = broadcasterConnectedAt ? Date.now() - broadcasterConnectedAt.getTime() : null;
+    console.warn(`[USALB relay] broadcaster closed: code=${code} reason=${closeReason || "(none)"} lifetimeMs=${lifetimeMs ?? "unknown"} live=${live} listeners=${listeners.size} lastAudioAt=${lastAudioAt?.toISOString() ?? "none"}`);
     if (broadcaster !== socket) return;
     broadcaster = null;
     // Do not take the radio offline for a transient network/proxy drop.
@@ -331,7 +356,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
       cancelBroadcasterDisconnectGrace();
       broadcasterDisconnectTimer = setTimeout(() => {
         broadcasterDisconnectTimer = null;
-        if (!broadcaster) reset();
+        if (!broadcaster) reset("broadcaster reconnect grace expired");
       }, BROADCASTER_RECONNECT_GRACE_MS);
     } else {
       reset();
@@ -339,6 +364,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
   });
   socket.once("error", () => {
     if (broadcaster !== socket) return;
+    console.error("[USALB relay] broadcaster WebSocket error");
     try { socket.close(); } catch {}
   });
 }
@@ -474,6 +500,17 @@ export function getLiveSnapshot() {
     startedAt,
     lastAudioAt,
     totalBytes,
+    encodedChunks,
+    encoderRunning: encoders.has(320) && !encoders.get(320)!.process.killed,
+    encoderStartedAt,
+    sampleRate: 44100,
+    channels: 2,
+    audioFlow: lastAudioAt ? Date.now() - lastAudioAt.getTime() < 3000 : false,
+    broadcasterConnectedAt,
+    lastBroadcasterCloseAt,
+    lastBroadcasterCloseCode,
+    lastBroadcasterCloseReason,
+    lastResetReason,
   };
 }
 
@@ -504,7 +541,10 @@ export function handleLiveStreamRequest(req: IncomingMessage, res: ServerRespons
   });
   res.flushHeaders?.();
 
+  const listenerId = ++listenerSequence;
   listeners.set(res, selectedQuality);
+  listenerIds.set(res, listenerId);
+  console.info(`[USALB relay] listener connected: id=${listenerId} quality=${selectedQuality} listeners=${listeners.size} recentBytes=${encoder.recentBytes}`);
   res.socket?.setKeepAlive(true, 30_000);
   res.socket?.setNoDelay(true);
 
@@ -512,7 +552,13 @@ export function handleLiveStreamRequest(req: IncomingMessage, res: ServerRespons
     if (!res.writableEnded) res.write(chunk);
   }
 
-  const cleanup = () => listeners.delete(res);
+  const cleanup = () => {
+    if (!listenerIds.has(res)) return;
+    const id = listenerIds.get(res)!;
+    listenerIds.delete(res);
+    listeners.delete(res);
+    console.info(`[USALB relay] listener disconnected: id=${id} listeners=${listeners.size} writableEnded=${res.writableEnded} destroyed=${res.destroyed}`);
+  };
   req.once("close", cleanup);
   res.once("close", cleanup);
   res.once("error", cleanup);
