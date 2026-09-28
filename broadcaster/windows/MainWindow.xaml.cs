@@ -559,6 +559,9 @@ public partial class MainWindow : Window
         var mic = new float[frameSamples];
         BiQuadFilter[]? musicEqL = null, musicEqR = null, micEqL = null, micEqR = null;
         float lastBass = float.NaN, lastMid = float.NaN, lastTreble = float.NaN;
+        Task<PcmWebSocketConnection>? rotationTask = null;
+        PcmWebSocketConnection? rotationCandidate = null;
+        DateTime nextRotationAttemptAt = DateTime.MinValue;
         try
         {
             var nextFrameAt = Stopwatch.GetTimestamp() + (long)(Stopwatch.Frequency * (FrameMs / 1000.0));
@@ -616,45 +619,62 @@ public partial class MainWindow : Window
                     output[i * 2] = (byte)(sl & 255); output[i * 2 + 1] = (byte)(sl >> 8);
                     output[(i + 1) * 2] = (byte)(sr & 255); output[(i + 1) * 2 + 1] = (byte)(sr >> 8);
                 }
-                var activeConnection = audioConnection;
-                if (activeConnection is null) continue;
+                // Start the replacement connection in the background. The current
+                // connection keeps carrying PCM while the new WebSocket performs its
+                // handshake, so connection setup itself cannot create a listener gap.
+                if (audioConnection is not null &&
+                    rotationTask is null &&
+                    rotationCandidate is null &&
+                    (DateTime.Now - audioConnectionConnectedAt).TotalSeconds >= WebSocketRotationSeconds &&
+                    DateTime.Now >= nextRotationAttemptAt)
+                {
+                    AddDiagnostic("Planned WebSocket rotation started in background before the 5-minute connection limit.");
+                    rotationTask = ConnectAudioAsync(liveIngestUri!, liveKey, token);
+                }
 
-                // Replit/proxy infrastructure is consistently ending this long-lived
-                // WebSocket at about 5 minutes. Pre-connect a replacement before that
-                // point so the platform never gets the chance to terminate the active
-                // session unexpectedly. The server accepts the new broadcaster, keeps
-                // the live encoder/listeners alive, and the old socket is then closed.
-                if ((DateTime.Now - audioConnectionConnectedAt).TotalSeconds >= WebSocketRotationSeconds)
+                if (rotationTask is not null && rotationTask.IsCompleted)
                 {
                     try
                     {
-                        AddDiagnostic("Planned WebSocket rotation started before the 5-minute connection limit.");
-                        var replacement = await ConnectAudioAsync(liveIngestUri!, liveKey, token);
-                        var previous = audioConnection;
-                        audioConnection = replacement;
-                        audioConnectionConnectedAt = DateTime.Now;
-                        reconnectCount++;
-                        lastConnectionState = "CONNECTED";
-                        AddDiagnostic($"Planned WebSocket rotation successful. Connection age was about {WebSocketRotationSeconds:0}s.");
-                        if (previous is not null && !ReferenceEquals(previous, replacement))
-                        {
-                            try { await previous.DisposeAsync(); } catch { }
-                        }
-                        await WaitForForwardAudioCushionAsync(token);
-                        activeConnection = replacement;
+                        rotationCandidate = await rotationTask;
+                        rotationTask = null;
+                        AddDiagnostic("Planned WebSocket replacement is READY; next PCM frame will switch the live source.");
                     }
                     catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
                     catch (Exception ex)
                     {
+                        rotationTask = null;
+                        nextRotationAttemptAt = DateTime.Now.AddSeconds(30);
                         AddDiagnostic("Planned WebSocket rotation failed; keeping current connection: " + ex.GetBaseException().Message);
-                        // Keep the existing connection alive. If the proxy closes it,
-                        // the normal reconnect path below will still recover automatically.
-                        activeConnection = audioConnection;
                     }
                 }
+
+                var activeConnection = rotationCandidate ?? audioConnection;
+                if (activeConnection is null) continue;
+
                 try
                 {
                     await activeConnection.SendAudioAsync(output, token);
+
+                    if (rotationCandidate is not null && ReferenceEquals(activeConnection, rotationCandidate))
+                    {
+                        var previous = audioConnection;
+                        audioConnection = rotationCandidate;
+                        rotationCandidate = null;
+                        audioConnectionConnectedAt = DateTime.Now;
+                        reconnectCount++;
+                        lastConnectionState = "CONNECTED";
+                        AddDiagnostic("Planned WebSocket handoff committed on first PCM frame; no audio cushion wait was inserted.");
+
+                        // The server promotes the replacement on this same first PCM
+                        // frame and closes the old source. Dispose the old client only
+                        // after that frame has been successfully handed off.
+                        if (previous is not null && !ReferenceEquals(previous, activeConnection))
+                        {
+                            try { await previous.DisposeAsync(); } catch { }
+                        }
+                    }
+
                     Interlocked.Increment(ref framesSent);
                     Interlocked.Add(ref bytesSent, output.Length);
                     lastAudioAt = DateTime.Now;
@@ -662,7 +682,14 @@ public partial class MainWindow : Window
                 }
                 catch (Exception ex) when (!token.IsCancellationRequested)
                 {
-                    if (ReferenceEquals(audioConnection, activeConnection))
+                    if (rotationCandidate is not null && ReferenceEquals(rotationCandidate, activeConnection))
+                    {
+                        try { await rotationCandidate.DisposeAsync(); } catch { }
+                        rotationCandidate = null;
+                        nextRotationAttemptAt = DateTime.Now.AddSeconds(30);
+                        AddDiagnostic("Planned replacement could not accept its first PCM frame; continuing on the existing WebSocket: " + ex.GetBaseException().Message);
+                    }
+                    else if (ReferenceEquals(audioConnection, activeConnection))
                     {
                         try { await activeConnection.DisposeAsync(); } catch { }
                         audioConnection = null;
