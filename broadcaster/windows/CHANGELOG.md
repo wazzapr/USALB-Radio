@@ -1,9 +1,9 @@
+# USALB Broadcaster Changelog
+
 ## 1.0.21
 
 - Fix seamless WebSocket rotation so the old connection is aborted locally after the replacement's first PCM frame, preventing the 20 ms audio loop from stalling during handoff.
 - Keeps the in-app updater compatible by publishing the new version through the existing `broadcaster-latest` GitHub release.
-
-# USALB Broadcaster Changelog
 
 ## 1.0.20
 - Uses the exact main USALB station logo inside the Broadcaster and as the Windows application/installer icon.
