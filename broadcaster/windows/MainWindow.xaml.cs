@@ -667,11 +667,14 @@ public partial class MainWindow : Window
                         AddDiagnostic("Planned WebSocket handoff committed on first PCM frame; no audio cushion wait was inserted.");
 
                         // The server promotes the replacement on this same first PCM
-                        // frame and closes the old source. Dispose the old client only
-                        // after that frame has been successfully handed off.
+                        // frame and closes the old source. Do not await a graceful close
+                        // here: CloseAsync can wait on the old WebSocket and stall the
+                        // 20 ms PCM loop, which is exactly the kind of handoff gap we
+                        // are trying to eliminate. The server has already accepted the
+                        // replacement frame, so abort the old client locally instead.
                         if (previous is not null && !ReferenceEquals(previous, activeConnection))
                         {
-                            try { await previous.DisposeAsync(); } catch { }
+                            try { previous.Abort(); } catch { }
                         }
                     }
 
