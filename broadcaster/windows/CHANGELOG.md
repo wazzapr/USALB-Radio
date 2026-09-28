@@ -1,7 +1,7 @@
+# USALB Broadcaster Changelog
+
 ## 1.0.20
 - Makes the 4:30 WebSocket rotation overlap the old connection and hand off on the first PCM frame without waiting for the 1.5-second forward audio cushion.
-
-# USALB Broadcaster Changelog
 
 ## 1.0.19
 - Pre-connects a replacement WebSocket before the recurring five-minute upstream connection termination, preserving automatic live recovery without waiting for the forced disconnect.
