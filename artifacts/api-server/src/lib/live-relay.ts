@@ -322,9 +322,11 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
 
         live = true;
         announceWsStatus();
-        startedAt = new Date();
-        lastAudioAt = null;
-        totalBytes = 0;
+        if (!resumingExistingBroadcast) {
+          startedAt = new Date();
+          lastAudioAt = null;
+          totalBytes = 0;
+        }
         sendJson(socket, {
           type: "ready",
           live: true,
