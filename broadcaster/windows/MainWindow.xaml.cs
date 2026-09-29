@@ -701,19 +701,20 @@ public partial class MainWindow : Window
                 }
                 catch (Exception ex) when (!token.IsCancellationRequested)
                 {
-                    if (rotationCandidate is not null && ReferenceEquals(rotationCandidate, activeConnection))
+                    if (ReferenceEquals(audioConnection, primaryConnection))
                     {
-                        try { await rotationCandidate.DisposeAsync(); } catch { }
-                        rotationCandidate = null;
-                        nextRotationAttemptAt = DateTime.Now.AddSeconds(30);
-                        AddDiagnostic("Planned replacement could not accept its first PCM frame; continuing on the existing WebSocket: " + ex.GetBaseException().Message);
-                    }
-                    else if (ReferenceEquals(audioConnection, activeConnection))
-                    {
-                        try { await activeConnection.DisposeAsync(); } catch { }
+                        try { await primaryConnection.DisposeAsync(); } catch { }
                         audioConnection = null;
                         lastConnectionState = "RECONNECTING";
                         lastAudioState = "WAITING";
+
+                        if (rotationCandidate is not null)
+                        {
+                            try { await rotationCandidate.DisposeAsync(); } catch { }
+                            rotationCandidate = null;
+                        }
+
+                        nextRotationAttemptAt = DateTime.Now.AddSeconds(30);
                         AddDiagnostic("Broadcaster WebSocket disconnected while sending audio: " + ex.GetBaseException().Message);
                     }
                     continue;
