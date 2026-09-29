@@ -1,5 +1,12 @@
 # USALB Broadcaster Changelog
 
+## 1.0.22
+
+- Mirrors each live PCM frame to the old and replacement WebSocket during planned rotation so the handoff stays continuous.
+- Completes the Broadcaster-side handoff only after the replacement accepts the same live PCM frame.
+- Keeps the existing 44.1 kHz stereo audio path, automatic reconnect, diagnostics, logo, updater, and all previous Broadcaster fixes.
+
+
 ## 1.0.21
 
 - Fix seamless WebSocket rotation so the old connection is aborted locally after the replacement's first PCM frame, preventing the 20 ms audio loop from stalling during handoff.
