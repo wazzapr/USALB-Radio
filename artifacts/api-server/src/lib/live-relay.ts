@@ -44,6 +44,10 @@ const wsListeners = new Set<WebSocket>();
 // HTTP chunk boundaries are not guaranteed to match broadcaster audio frames.
 // Keep a small framing buffer so a PCM1 header split across TCP chunks is not lost.
 let pcmPending = Buffer.alloc(0);
+// Last complete PCM frame accepted by the encoder. The replacement socket mirrors
+// the same live frame during handoff; identical first frames are ignored to avoid
+// a duplicate 20 ms frame in the listener stream.
+let lastPcmFrame: Buffer | null = null;
 let broadcasterDisconnectTimer: NodeJS.Timeout | null = null;
 const BROADCASTER_RECONNECT_GRACE_MS = 30_000;
 const BROADCASTER_WS_PING_MS = 20_000;
@@ -138,6 +142,7 @@ function relay(chunk: Buffer): void {
 
       const payload = pcmPending.subarray(PCM_MAGIC.length, packetBytes);
       pcmPending = pcmPending.subarray(packetBytes);
+      lastPcmFrame = Buffer.from(payload);
       for (const encoder of encoders.values()) {
         if (!encoder.process.stdin.destroyed) {
           try { encoder.process.stdin.write(payload); } catch { reset(); return; }
@@ -201,6 +206,7 @@ function reset(reason = "reset"): void {
   encoderStartedAt = null;
   broadcasterConnectedAt = null;
   pcmPending = Buffer.alloc(0);
+  lastPcmFrame = null;
   for (const socket of wsListeners) { try { socket.close(1000, "Broadcast ended"); } catch {} }
   wsListeners.clear();
   for (const encoder of encoders.values()) { try { encoder.process.stdin.end(); } catch {} try { encoder.process.kill("SIGTERM"); } catch {} }
@@ -294,20 +300,26 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
     if (isBinary) {
       if (!live) return;
 
-      // Commit a planned replacement on its first PCM frame, but relay that
-      // frame BEFORE closing the old source. This guarantees the live encoder
-      // sees continuous PCM at the exact handoff boundary.
+      // During a planned rotation the Broadcaster mirrors the same PCM frame
+      // to both sockets. Commit the replacement only after that mirrored frame
+      // arrives, and do not encode it twice when it is identical to the last frame
+      // already accepted from the old socket.
       if (pendingBroadcaster === socket && broadcaster !== socket) {
         const previous = broadcaster;
+        const raw = rawBuffer(data);
+        const replacementPayload = pcmPayload(raw);
+        const duplicateOfLastFrame =
+          replacementPayload !== null &&
+          lastPcmFrame !== null &&
+          replacementPayload.length === lastPcmFrame.length &&
+          replacementPayload.equals(lastPcmFrame);
+
         pendingBroadcaster = null;
         broadcaster = socket;
         broadcasterConnectedAt = new Date();
-        console.info(`[USALB relay] broadcaster handoff committed on first PCM frame; handoff=${SEAMLESS_HANDOFF_PROTOCOL}.`);
+        console.info(`[USALB relay] broadcaster handoff committed on mirrored live PCM frame; duplicateFirstFrame=${duplicateOfLastFrame}; handoff=${SEAMLESS_HANDOFF_PROTOCOL}.`);
 
-        // The first PCM frame belongs to the replacement. Feed it into the
-        // existing encoder first, then close the old WebSocket. Closing the
-        // old socket before relay() can introduce a scheduler/network gap.
-        relay(rawBuffer(data));
+        if (!duplicateOfLastFrame) relay(raw);
 
         if (previous && previous !== socket) {
           try { previous.close(1000, "Replaced after seamless broadcaster handoff"); } catch {}
