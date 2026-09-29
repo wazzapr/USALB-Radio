@@ -649,30 +649,46 @@ public partial class MainWindow : Window
                     }
                 }
 
-                var activeConnection = rotationCandidate ?? audioConnection;
-                if (activeConnection is null) continue;
+                var primaryConnection = audioConnection;
+                if (primaryConnection is null) continue;
+                var candidateConnection = rotationCandidate;
 
                 try
                 {
-                    await activeConnection.SendAudioAsync(output, token);
+                    // Once the replacement is READY, mirror each live PCM frame to
+                    // both sockets. The old source remains authoritative until the
+                    // replacement has received the same live frame, so the server
+                    // never has to wait for the replacement to start producing audio.
+                    await primaryConnection.SendAudioAsync(output, token);
 
-                    if (rotationCandidate is not null && ReferenceEquals(activeConnection, rotationCandidate))
+                    if (candidateConnection is not null && ReferenceEquals(candidateConnection, rotationCandidate))
+                    {
+                        try
+                        {
+                            await candidateConnection.SendAudioAsync(output, token);
+                        }
+                        catch (Exception ex) when (!token.IsCancellationRequested)
+                        {
+                            try { await candidateConnection.DisposeAsync(); } catch { }
+                            if (ReferenceEquals(rotationCandidate, candidateConnection))
+                                rotationCandidate = null;
+                            nextRotationAttemptAt = DateTime.Now.AddSeconds(30);
+                            AddDiagnostic("Planned replacement could not accept mirrored PCM; continuing on the existing WebSocket: " + ex.GetBaseException().Message);
+                            candidateConnection = null;
+                        }
+                    }
+
+                    if (candidateConnection is not null && ReferenceEquals(candidateConnection, rotationCandidate))
                     {
                         var previous = audioConnection;
-                        audioConnection = rotationCandidate;
+                        audioConnection = candidateConnection;
                         rotationCandidate = null;
                         audioConnectionConnectedAt = DateTime.Now;
                         reconnectCount++;
                         lastConnectionState = "CONNECTED";
-                        AddDiagnostic("Planned WebSocket handoff committed on first PCM frame; no audio cushion wait was inserted.");
+                        AddDiagnostic("Planned WebSocket handoff committed after mirrored live PCM; old and new sources overlapped for the handoff.");
 
-                        // The server promotes the replacement on this same first PCM
-                        // frame and closes the old source. Do not await a graceful close
-                        // here: CloseAsync can wait on the old WebSocket and stall the
-                        // 20 ms PCM loop, which is exactly the kind of handoff gap we
-                        // are trying to eliminate. The server has already accepted the
-                        // replacement frame, so abort the old client locally instead.
-                        if (previous is not null && !ReferenceEquals(previous, activeConnection))
+                        if (previous is not null && !ReferenceEquals(previous, candidateConnection))
                         {
                             try { previous.Abort(); } catch { }
                         }
