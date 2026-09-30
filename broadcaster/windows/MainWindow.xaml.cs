@@ -666,6 +666,9 @@ public partial class MainWindow : Window
                         try
                         {
                             await candidateConnection.SendAudioAsync(output, token);
+                            // Do not close the old socket until the server confirms
+                            // that this replacement frame was accepted as the live source.
+                            await candidateConnection.WaitForHandoffCommittedAsync(token);
                         }
                         catch (Exception ex) when (!token.IsCancellationRequested)
                         {
@@ -836,6 +839,8 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
     readonly ClientWebSocket socket;
     readonly TaskCompletionSource<Exception?> disconnectSignal =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    readonly TaskCompletionSource<bool> handoffCommittedSignal =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     bool disposed;
 
     readonly Action<string> diagnostic;
@@ -931,6 +936,11 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
                         {
                             diagnostic("Server heartbeat received.");
                         }
+                        else if (message.Contains("\"type\":\"handoff-committed\"", StringComparison.OrdinalIgnoreCase))
+                        {
+                            handoffCommittedSignal.TrySetResult(true);
+                            diagnostic("Server confirmed replacement PCM is now the live source.");
+                        }
                     }
 
                     while (!result.EndOfMessage)
@@ -956,8 +966,13 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
 
         var packet = new byte[4 + pcm.Length];
         packet[0] = 0x50; packet[1] = 0x43; packet[2] = 0x4d; packet[3] = 0x31;
-        Buffer.BlockCopy(pcm, 0, packet, 4, pcm.Length);
+        Buffer.BlockCopy(pcm, 0, packet, 4);
         await socket.SendAsync(packet.AsMemory(), WebSocketMessageType.Binary, true, token);
+    }
+
+    public async Task WaitForHandoffCommittedAsync(CancellationToken token)
+    {
+        await handoffCommittedSignal.Task.WaitAsync(TimeSpan.FromSeconds(2), token);
     }
 
     public void Abort()
