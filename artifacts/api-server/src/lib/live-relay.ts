@@ -48,6 +48,11 @@ let pcmPending = Buffer.alloc(0);
 // the same live frame during handoff; identical first frames are ignored to avoid
 // a duplicate 20 ms frame in the listener stream.
 let lastPcmFrame: Buffer | null = null;
+// Tracks sockets that have received the one-time first-PCM handoff acknowledgement.
+// This also covers a replacement that arrives after the previous socket has already
+// disappeared: it may become authoritative immediately and still needs to release
+// the Broadcaster's rotation wait.
+const handoffAckedSockets = new WeakSet<WebSocket>();
 let broadcasterDisconnectTimer: NodeJS.Timeout | null = null;
 const BROADCASTER_RECONNECT_GRACE_MS = 30_000;
 const BROADCASTER_WS_PING_MS = 20_000;
@@ -340,7 +345,23 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
           }, 500);
         }
       } else if (broadcaster === socket) {
-        relay(rawBuffer(data));
+        const raw = rawBuffer(data);
+        relay(raw);
+        // If the previous broadcaster disappeared before this replacement
+        // connected, there is no pending-handoff branch to send the ACK.
+        // A rotating Broadcaster would then wait unnecessarily and fall back
+        // even though this socket is already the authoritative live source.
+        // ACK the first accepted PCM frame once for every active socket so
+        // both normal and reconnect-after-drop rotations can complete cleanly.
+        if (!handoffAckedSockets.has(socket)) {
+          handoffAckedSockets.add(socket);
+          sendJson(socket, {
+            type: "handoff-committed",
+            protocol: SEAMLESS_HANDOFF_PROTOCOL,
+            duplicateFirstFrame: false,
+          });
+          console.info("[USALB relay] first live PCM accepted; handoff acknowledgement sent to active broadcaster.");
+        }
       }
       return;
     }
