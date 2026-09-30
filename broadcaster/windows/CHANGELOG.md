@@ -1,3 +1,9 @@
+## 1.0.25
+
+- Removes the handoff acknowledgement wait from the 20 ms live PCM send loop.
+- Keeps both old and replacement WebSockets receiving live PCM during the server-side handoff without pausing audio for the control-message round trip.
+- Prevents the approximately 1–2 second audible gap caused by waiting for the handoff acknowledgement inside the audio loop.
+
 ## 1.0.24
 
 - Lets the server own the old WebSocket close after an acknowledged handoff.
