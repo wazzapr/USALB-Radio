@@ -321,9 +321,16 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
 
         if (!duplicateOfLastFrame) relay(raw);
 
-        if (previous && previous !== socket) {
-          try { previous.close(1000, "Replaced after seamless broadcaster handoff"); } catch {}
-        }
+        // The replacement is now authoritative, but do not close the old
+        // socket yet. The Broadcaster waits for this acknowledgement before
+        // aborting the old connection. That keeps the old transport alive
+        // through the exact server-side handoff point.
+        sendJson(socket, {
+          type: "handoff-committed",
+          protocol: SEAMLESS_HANDOFF_PROTOCOL,
+          duplicateFirstFrame: duplicateOfLastFrame,
+        });
+        console.info("[USALB relay] handoff acknowledged to replacement; old broadcaster remains open until client closes it.");
       } else if (broadcaster === socket) {
         relay(rawBuffer(data));
       }
