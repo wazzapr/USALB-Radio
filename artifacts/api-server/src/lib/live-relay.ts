@@ -48,6 +48,12 @@ let pcmPending = Buffer.alloc(0);
 // the same live frame during handoff; identical first frames are ignored to avoid
 // a duplicate 20 ms frame in the listener stream.
 let lastPcmFrame: Buffer | null = null;
+// Keep the encoder fed across very short broadcaster/runtime stalls. The goal is
+// to prevent FFmpeg/HTTP listeners from ever seeing an empty interval during a
+// source transition. A held 20 ms PCM frame is only used after the normal frame
+// cadence has actually stopped; healthy audio is never duplicated.
+let lastPcmFrameAt = 0;
+let pcmContinuityTimer: NodeJS.Timeout | null = null;
 let broadcasterDisconnectTimer: NodeJS.Timeout | null = null;
 const BROADCASTER_RECONNECT_GRACE_MS = 30_000;
 const BROADCASTER_WS_PING_MS = 20_000;
@@ -109,6 +115,33 @@ function startEncoders(): boolean {
   } catch { stopEncoders(); return false; }
 }
 
+function stopPcmContinuity(): void {
+  if (pcmContinuityTimer) {
+    clearInterval(pcmContinuityTimer);
+    pcmContinuityTimer = null;
+  }
+}
+
+function startPcmContinuity(): void {
+  stopPcmContinuity();
+  pcmContinuityTimer = setInterval(() => {
+    if (!live || broadcastMode !== "pcm" || !lastPcmFrame || !encoders.size) return;
+    // Broadcaster PCM is 20 ms/frame. Only bridge a genuine missed frame;
+    // normal frames refresh lastPcmFrameAt before this timer can fire.
+    if (lastPcmFrameAt <= 0 || Date.now() - lastPcmFrameAt < 28) return;
+    for (const encoder of encoders.values()) {
+      if (encoder.process.stdin.destroyed || encoder.process.stdin.writableEnded) continue;
+      try {
+        encoder.process.stdin.write(lastPcmFrame);
+        lastPcmFrameAt = Date.now();
+      } catch {
+        reset("PCM continuity write failed");
+        return;
+      }
+    }
+  }, 10);
+}
+
 function stopEncoders(): void {
   for (const encoder of encoders.values()) {
     try { encoder.process.stdin.end(); } catch {}
@@ -143,6 +176,7 @@ function relay(chunk: Buffer): void {
       const payload = pcmPending.subarray(PCM_MAGIC.length, packetBytes);
       pcmPending = pcmPending.subarray(packetBytes);
       lastPcmFrame = Buffer.from(payload);
+      lastPcmFrameAt = Date.now();
       for (const encoder of encoders.values()) {
         if (!encoder.process.stdin.destroyed) {
           try { encoder.process.stdin.write(payload); } catch { reset(); return; }
@@ -207,6 +241,8 @@ function reset(reason = "reset"): void {
   broadcasterConnectedAt = null;
   pcmPending = Buffer.alloc(0);
   lastPcmFrame = null;
+  lastPcmFrameAt = 0;
+  stopPcmContinuity();
   for (const socket of wsListeners) { try { socket.close(1000, "Broadcast ended"); } catch {} }
   wsListeners.clear();
   for (const encoder of encoders.values()) { try { encoder.process.stdin.end(); } catch {} try { encoder.process.kill("SIGTERM"); } catch {} }
@@ -374,6 +410,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
             reset();
             return;
           }
+          startPcmContinuity();
         }
 
         live = true;
@@ -500,6 +537,7 @@ export function handleLiveIngestRequest(req: IncomingMessage, res: ServerRespons
         live = true;
       }
 
+      startPcmContinuity();
       recordIngestHeartbeat();
 
       res.writeHead(200, {
