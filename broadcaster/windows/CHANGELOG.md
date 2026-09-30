@@ -1,3 +1,9 @@
+## 1.0.24
+
+- Lets the server own the old WebSocket close after an acknowledged handoff.
+- Prevents the Broadcaster from locally aborting the previous socket at the exact rotation boundary.
+- Keeps the replacement sending live PCM while the previous transport remains open through the handoff.
+
 ﻿## 1.0.23
 
 - Keeps the old WebSocket open until the server confirms the replacement PCM frame is the live source.
