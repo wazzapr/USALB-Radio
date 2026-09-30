@@ -9,13 +9,15 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 const LIVE_SOCKET_PATH = "/api/live/ws";
 const PCM_MAGIC = Buffer.from([0x50, 0x43, 0x4d, 0x31]);
+// Keep roughly 10–13 seconds of 320 kbps MP3 for a new listener. This gives the browser a safety cushion without changing the live relay timeline.
+const MAX_RECENT_BYTES = 512 * 1024;
 const QUALITY_PATHS = new Map<string, 320>([
   ["/api/live/stream", 320],
   ["/api/radio-stream", 320],
   ["/api/live/stream-320", 320],
 ]);
 type Quality = 320;
-type Encoder = { bitrate: Quality; process: ChildProcessWithoutNullStreams };
+type Encoder = { bitrate: Quality; process: ChildProcessWithoutNullStreams; recentChunks: Buffer[]; recentBytes: number };
 const encoders = new Map<Quality, Encoder>();
 let broadcaster: WebSocket | null = null;
 let pendingBroadcaster: WebSocket | null = null;
@@ -46,11 +48,6 @@ let pcmPending = Buffer.alloc(0);
 // the same live frame during handoff; identical first frames are ignored to avoid
 // a duplicate 20 ms frame in the listener stream.
 let lastPcmFrame: Buffer | null = null;
-// Tracks sockets that have received the one-time first-PCM handoff acknowledgement.
-// This also covers a replacement that arrives after the previous socket has already
-// disappeared: it may become authoritative immediately and still needs to release
-// the Broadcaster's rotation wait.
-const handoffAckedSockets = new WeakSet<WebSocket>();
 let broadcasterDisconnectTimer: NodeJS.Timeout | null = null;
 const BROADCASTER_RECONNECT_GRACE_MS = 30_000;
 const BROADCASTER_WS_PING_MS = 20_000;
@@ -68,6 +65,15 @@ function rawBuffer(data: RawData): Buffer {
   return Buffer.from(data);
 }
 
+function rememberEncoder(encoder: Encoder, chunk: Buffer): void {
+  encoder.recentChunks.push(Buffer.from(chunk));
+  encoder.recentBytes += chunk.length;
+  while (encoder.recentBytes > MAX_RECENT_BYTES && encoder.recentChunks.length > 1) {
+    const removed = encoder.recentChunks.shift();
+    if (removed) encoder.recentBytes -= removed.length;
+  }
+}
+
 function spawnEncoder(bitrate: Quality): Encoder {
   const child = spawn(process.env.FFMPEG_PATH || "ffmpeg", [
     "-hide_banner", "-loglevel", "error",
@@ -75,11 +81,12 @@ function spawnEncoder(bitrate: Quality): Encoder {
     "-vn", "-codec:a", "libmp3lame", "-b:a", `${bitrate}k`, "-ar", "44100", "-ac", "2",
     "-f", "mp3", "-flush_packets", "1", "pipe:1",
   ], { stdio: ["pipe", "pipe", "pipe"] });
-  const encoder: Encoder = { bitrate, process: child };
+  const encoder: Encoder = { bitrate, process: child, recentChunks: [], recentBytes: 0 };
   child.stdout.on("data", (chunk: Buffer) => {
     lastAudioAt = new Date();
     totalBytes += chunk.length;
     encodedChunks += 1;
+    rememberEncoder(encoder, chunk);
     for (const [response, quality] of listeners) {
       if (quality !== bitrate) continue;
       if (response.writableEnded || response.destroyed) { listeners.delete(response); continue; }
@@ -149,6 +156,7 @@ function relay(chunk: Buffer): void {
   if (!encoder) return;
   lastAudioAt = new Date();
   totalBytes += payload.length;
+  rememberEncoder(encoder, payload);
   for (const [response, quality] of listeners) {
     if (quality !== 320) continue;
     if (response.writableEnded || response.destroyed) { listeners.delete(response); continue; }
@@ -317,39 +325,14 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
         // socket yet. The Broadcaster waits for this acknowledgement before
         // aborting the old connection. That keeps the old transport alive
         // through the exact server-side handoff point.
-        handoffAckedSockets.add(socket);
         sendJson(socket, {
           type: "handoff-committed",
           protocol: SEAMLESS_HANDOFF_PROTOCOL,
           duplicateFirstFrame: duplicateOfLastFrame,
         });
-        console.info("[USALB relay] handoff acknowledged to replacement; server will close the old broadcaster after a short overlap.");
-        if (previous && previous !== socket) {
-          setTimeout(() => {
-            if (broadcaster === socket && previous.readyState === 1) {
-              try { previous.close(1000, "Replaced after server-confirmed seamless handoff"); } catch {}
-              console.info("[USALB relay] old broadcaster closed after server-confirmed handoff overlap.");
-            }
-          }, 500);
-        }
+        console.info("[USALB relay] handoff acknowledged to replacement; old broadcaster remains open until client closes it.");
       } else if (broadcaster === socket) {
-        const raw = rawBuffer(data);
-        relay(raw);
-        // If the previous broadcaster disappeared before this replacement
-        // connected, there is no pending-handoff branch to send the ACK.
-        // A rotating Broadcaster would then wait unnecessarily and fall back
-        // even though this socket is already the authoritative live source.
-        // ACK the first accepted PCM frame once for every active socket so
-        // both normal and reconnect-after-drop rotations can complete cleanly.
-        if (!handoffAckedSockets.has(socket)) {
-          handoffAckedSockets.add(socket);
-          sendJson(socket, {
-            type: "handoff-committed",
-            protocol: SEAMLESS_HANDOFF_PROTOCOL,
-            duplicateFirstFrame: false,
-          });
-          console.info("[USALB relay] first live PCM accepted; handoff acknowledgement sent to active broadcaster.");
-        }
+        relay(rawBuffer(data));
       }
       return;
     }
@@ -624,9 +607,13 @@ export function handleLiveStreamRequest(req: IncomingMessage, res: ServerRespons
   const listenerId = ++listenerSequence;
   listeners.set(res, selectedQuality);
   listenerIds.set(res, listenerId);
-  console.info(`[USALB relay] listener connected: id=${listenerId} quality=${selectedQuality} listeners=${listeners.size}; live-only mode`);
+  console.info(`[USALB relay] listener connected: id=${listenerId} quality=${selectedQuality} listeners=${listeners.size} recentBytes=${encoder.recentBytes}`);
   res.socket?.setKeepAlive(true, 30_000);
   res.socket?.setNoDelay(true);
+
+  for (const chunk of encoder.recentChunks) {
+    if (!res.writableEnded) res.write(chunk);
+  }
 
   const cleanup = () => {
     if (!listenerIds.has(res)) return;
