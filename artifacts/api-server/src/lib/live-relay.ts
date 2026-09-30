@@ -330,6 +330,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
         // socket yet. The Broadcaster waits for this acknowledgement before
         // aborting the old connection. That keeps the old transport alive
         // through the exact server-side handoff point.
+        handoffAckedSockets.add(socket);
         sendJson(socket, {
           type: "handoff-committed",
           protocol: SEAMLESS_HANDOFF_PROTOCOL,
