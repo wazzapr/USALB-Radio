@@ -666,9 +666,12 @@ public partial class MainWindow : Window
                         try
                         {
                             await candidateConnection.SendAudioAsync(output, token);
-                            // Do not close the old socket until the server confirms
-                            // that this replacement frame was accepted as the live source.
-                            await candidateConnection.WaitForHandoffCommittedAsync(token);
+                            // The server commits the replacement on this mirrored PCM
+                            // frame and sends the acknowledgement independently. Do not
+                            // wait for that control message inside the 20 ms audio loop:
+                            // waiting here pauses the old socket too and creates an audible
+                            // gap. Both sockets keep receiving live PCM while the server
+                            // owns the exact handoff boundary.
                         }
                         catch (Exception ex) when (!token.IsCancellationRequested)
                         {
