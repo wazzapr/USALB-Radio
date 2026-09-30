@@ -691,9 +691,13 @@ public partial class MainWindow : Window
                         lastConnectionState = "CONNECTED";
                         AddDiagnostic("Planned WebSocket handoff committed after mirrored live PCM; old and new sources overlapped for the handoff.");
 
+                        // The server now owns the old-socket close. Do not abort the
+                        // previous transport locally: it must remain open after the
+                        // server has promoted the replacement so the handoff cannot
+                        // be disturbed by a client-side close race.
                         if (previous is not null && !ReferenceEquals(previous, candidateConnection))
                         {
-                            try { previous.Abort(); } catch { }
+                            AddDiagnostic("Replacement is live; leaving old WebSocket open for server-side handoff close.");
                         }
                     }
 
