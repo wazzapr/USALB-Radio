@@ -1,3 +1,9 @@
+## 1.0.23
+
+- Keeps the old WebSocket open until the server confirms the replacement PCM frame is the live source.
+- Prevents the Broadcaster from aborting the old connection before the server-side handoff is committed.
+- Keeps the existing continuous PCM overlap, automatic rotation, diagnostics, logo, updater, and 44.1 kHz stereo path.
+
 # USALB Broadcaster Changelog
 
 ## 1.0.22
