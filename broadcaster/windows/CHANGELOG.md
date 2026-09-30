@@ -1,3 +1,9 @@
+## 1.0.27
+
+- Pairs the stable v1.0.23/v1.0.24 broadcaster transport with the server-side live PCM continuity fix.
+- Keeps the broadcaster at 44.1 kHz stereo while the server maintains one continuous MP3 encoder and listener stream across short source transitions.
+- Keeps the existing diagnostics, USALB logo, updater, and automatic reconnect behavior.
+
 ## 1.0.26
 
 - Restores the v1.0.23/1.0.24 broadcaster connection and handoff baseline for controlled listener-gap testing.
