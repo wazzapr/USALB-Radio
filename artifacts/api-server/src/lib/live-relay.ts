@@ -9,15 +9,13 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 const LIVE_SOCKET_PATH = "/api/live/ws";
 const PCM_MAGIC = Buffer.from([0x50, 0x43, 0x4d, 0x31]);
-// Keep roughly 10–13 seconds of 320 kbps MP3 for a new listener. This gives the browser a safety cushion without changing the live relay timeline.
-const MAX_RECENT_BYTES = 512 * 1024;
 const QUALITY_PATHS = new Map<string, 320>([
   ["/api/live/stream", 320],
   ["/api/radio-stream", 320],
   ["/api/live/stream-320", 320],
 ]);
 type Quality = 320;
-type Encoder = { bitrate: Quality; process: ChildProcessWithoutNullStreams; recentChunks: Buffer[]; recentBytes: number };
+type Encoder = { bitrate: Quality; process: ChildProcessWithoutNullStreams };
 const encoders = new Map<Quality, Encoder>();
 let broadcaster: WebSocket | null = null;
 let pendingBroadcaster: WebSocket | null = null;
@@ -70,15 +68,6 @@ function rawBuffer(data: RawData): Buffer {
   return Buffer.from(data);
 }
 
-function rememberEncoder(encoder: Encoder, chunk: Buffer): void {
-  encoder.recentChunks.push(Buffer.from(chunk));
-  encoder.recentBytes += chunk.length;
-  while (encoder.recentBytes > MAX_RECENT_BYTES && encoder.recentChunks.length > 1) {
-    const removed = encoder.recentChunks.shift();
-    if (removed) encoder.recentBytes -= removed.length;
-  }
-}
-
 function spawnEncoder(bitrate: Quality): Encoder {
   const child = spawn(process.env.FFMPEG_PATH || "ffmpeg", [
     "-hide_banner", "-loglevel", "error",
@@ -86,12 +75,11 @@ function spawnEncoder(bitrate: Quality): Encoder {
     "-vn", "-codec:a", "libmp3lame", "-b:a", `${bitrate}k`, "-ar", "44100", "-ac", "2",
     "-f", "mp3", "-flush_packets", "1", "pipe:1",
   ], { stdio: ["pipe", "pipe", "pipe"] });
-  const encoder: Encoder = { bitrate, process: child, recentChunks: [], recentBytes: 0 };
+  const encoder: Encoder = { bitrate, process: child };
   child.stdout.on("data", (chunk: Buffer) => {
     lastAudioAt = new Date();
     totalBytes += chunk.length;
     encodedChunks += 1;
-    rememberEncoder(encoder, chunk);
     for (const [response, quality] of listeners) {
       if (quality !== bitrate) continue;
       if (response.writableEnded || response.destroyed) { listeners.delete(response); continue; }
@@ -161,7 +149,6 @@ function relay(chunk: Buffer): void {
   if (!encoder) return;
   lastAudioAt = new Date();
   totalBytes += payload.length;
-  rememberEncoder(encoder, payload);
   for (const [response, quality] of listeners) {
     if (quality !== 320) continue;
     if (response.writableEnded || response.destroyed) { listeners.delete(response); continue; }
@@ -637,13 +624,9 @@ export function handleLiveStreamRequest(req: IncomingMessage, res: ServerRespons
   const listenerId = ++listenerSequence;
   listeners.set(res, selectedQuality);
   listenerIds.set(res, listenerId);
-  console.info(`[USALB relay] listener connected: id=${listenerId} quality=${selectedQuality} listeners=${listeners.size} recentBytes=${encoder.recentBytes}`);
+  console.info(`[USALB relay] listener connected: id=${listenerId} quality=${selectedQuality} listeners=${listeners.size}; live-only mode`);
   res.socket?.setKeepAlive(true, 30_000);
   res.socket?.setNoDelay(true);
-
-  for (const chunk of encoder.recentChunks) {
-    if (!res.writableEnded) res.write(chunk);
-  }
 
   const cleanup = () => {
     if (!listenerIds.has(res)) return;
