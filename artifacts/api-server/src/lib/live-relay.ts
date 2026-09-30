@@ -333,7 +333,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
         console.info("[USALB relay] handoff acknowledged to replacement; server will close the old broadcaster after a short overlap.");
         if (previous && previous !== socket) {
           setTimeout(() => {
-            if (broadcaster === socket && previous.readyState === previous.OPEN) {
+            if (broadcaster === socket && previous.readyState === 1) {
               try { previous.close(1000, "Replaced after server-confirmed seamless handoff"); } catch {}
               console.info("[USALB relay] old broadcaster closed after server-confirmed handoff overlap.");
             }
