@@ -330,7 +330,15 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
           protocol: SEAMLESS_HANDOFF_PROTOCOL,
           duplicateFirstFrame: duplicateOfLastFrame,
         });
-        console.info("[USALB relay] handoff acknowledged to replacement; old broadcaster remains open until client closes it.");
+        console.info("[USALB relay] handoff acknowledged to replacement; server will close the old broadcaster after a short overlap.");
+        if (previous && previous !== socket) {
+          setTimeout(() => {
+            if (broadcaster === socket && previous.readyState === previous.OPEN) {
+              try { previous.close(1000, "Replaced after server-confirmed seamless handoff"); } catch {}
+              console.info("[USALB relay] old broadcaster closed after server-confirmed handoff overlap.");
+            }
+          }, 500);
+        }
       } else if (broadcaster === socket) {
         relay(rawBuffer(data));
       }
