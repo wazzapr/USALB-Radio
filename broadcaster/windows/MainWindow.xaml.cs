@@ -966,7 +966,7 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
 
         var packet = new byte[4 + pcm.Length];
         packet[0] = 0x50; packet[1] = 0x43; packet[2] = 0x4d; packet[3] = 0x31;
-        Buffer.BlockCopy(pcm, 0, packet, 4);
+        Buffer.BlockCopy(pcm, 0, packet, 4, pcm.Length);
         await socket.SendAsync(packet.AsMemory(), WebSocketMessageType.Binary, true, token);
     }
 
