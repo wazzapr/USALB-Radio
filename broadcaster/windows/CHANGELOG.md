@@ -1,3 +1,9 @@
+## 1.0.26
+
+- Restores the v1.0.23/1.0.24 broadcaster connection and handoff baseline for controlled listener-gap testing.
+- Restores the previous live relay server baseline so broadcaster and server changes can be tested separately.
+- Keeps the 44.1 kHz stereo path, diagnostics, logo, updater, and automatic reconnect behavior.
+
 ## 1.0.25
 
 - Removes the handoff acknowledgement wait from the 20 ms live PCM send loop.
