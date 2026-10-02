@@ -51,6 +51,15 @@ let pcmPending = Buffer.alloc(0);
 // a duplicate 20 ms frame in the listener stream.
 let lastPcmFrame: Buffer | null = null;
 let lastPcmSequence: bigint | null = null;
+// Handoff diagnostics: record exact server-side timing of the last PCM frame
+// accepted from the old socket and the first frame observed/accepted from the replacement.
+let lastPcmAcceptedAtMs: number | null = null;
+let lastPcmAcceptedSource: "old" | "new" | null = null;
+let lastPcmAcceptedSequence: bigint | null = null;
+let handoffCandidateFirstAtMs: number | null = null;
+let handoffCandidateFirstSequence: bigint | null = null;
+let handoffCandidateAcceptedAtMs: number | null = null;
+let handoffGapMs: number | null = null;
 let broadcasterDisconnectTimer: NodeJS.Timeout | null = null;
 const BROADCASTER_RECONNECT_GRACE_MS = 30_000;
 const BROADCASTER_WS_PING_MS = 20_000;
@@ -133,7 +142,7 @@ function parsePcmPacket(chunk: Buffer): { payload: Buffer; sequence: bigint | nu
   return null;
 }
 
-function relay(chunk: Buffer): void {
+function relay(chunk: Buffer, source: "old" | "new" = "old"): void {
   if (broadcastMode === "pcm") {
     pcmPending = pcmPending.length ? Buffer.concat([pcmPending, chunk]) : Buffer.from(chunk);
     const frameBytes = Math.max(1, Math.round(pcmSampleRate * pcmChannels * 2 * 0.02));
@@ -162,8 +171,24 @@ function relay(chunk: Buffer): void {
       pcmPending = pcmPending.subarray(headerBytes + frameBytes);
       if (!parsed) continue;
 
+      const acceptedAtMs = Date.now();
       lastPcmFrame = Buffer.from(parsed.payload);
       if (parsed.sequence !== null) lastPcmSequence = parsed.sequence;
+      lastPcmAcceptedAtMs = acceptedAtMs;
+      lastPcmAcceptedSource = source;
+      lastPcmAcceptedSequence = parsed.sequence;
+      if (source === "new" && handoffCandidateAcceptedAtMs === null) {
+        handoffCandidateAcceptedAtMs = acceptedAtMs;
+        handoffGapMs = handoffCandidateFirstAtMs !== null
+          ? acceptedAtMs - handoffCandidateFirstAtMs
+          : null;
+        console.info(
+          "[USALB relay] HANDOFF NEW PCM ACCEPTED sequence=" +
+          (parsed.sequence?.toString() ?? "legacy") +
+          " acceptedAt=" + new Date(acceptedAtMs).toISOString() +
+          " gapFromCandidateFirstMs=" + (handoffGapMs ?? "unknown")
+        );
+      }
       for (const encoder of encoders.values()) {
         if (!encoder.process.stdin.destroyed) {
           try { encoder.process.stdin.write(parsed.payload); } catch { reset(); return; }
@@ -229,6 +254,13 @@ function reset(reason = "reset"): void {
   pcmPending = Buffer.alloc(0);
   lastPcmFrame = null;
   lastPcmSequence = null;
+  lastPcmAcceptedAtMs = null;
+  lastPcmAcceptedSource = null;
+  lastPcmAcceptedSequence = null;
+  handoffCandidateFirstAtMs = null;
+  handoffCandidateFirstSequence = null;
+  handoffCandidateAcceptedAtMs = null;
+  handoffGapMs = null;
   for (const socket of wsListeners) { try { socket.close(1000, "Broadcast ended"); } catch {} }
   wsListeners.clear();
   for (const encoder of encoders.values()) { try { encoder.process.stdin.end(); } catch {} try { encoder.process.kill("SIGTERM"); } catch {} }
@@ -333,6 +365,21 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
         if (!parsed) return;
 
         const replacementSequence = parsed.sequence;
+        const candidateFirstAtMs = Date.now();
+        if (handoffCandidateFirstAtMs === null) {
+          handoffCandidateFirstAtMs = candidateFirstAtMs;
+          handoffCandidateFirstSequence = replacementSequence;
+          const gapFromLastOldMs = lastPcmAcceptedAtMs !== null
+            ? candidateFirstAtMs - lastPcmAcceptedAtMs
+            : null;
+          console.info(
+            "[USALB relay] HANDOFF NEW PCM FIRST sequence=" +
+            (replacementSequence?.toString() ?? "legacy") +
+            " receivedAt=" + new Date(candidateFirstAtMs).toISOString() +
+            " gapFromLastOldAcceptedMs=" + (gapFromLastOldMs ?? "unknown") +
+            " lastOldSequence=" + (lastPcmAcceptedSequence?.toString() ?? "unknown")
+          );
+        }
         const sequenceIsStale =
           replacementSequence !== null &&
           lastPcmSequence !== null &&
@@ -354,7 +401,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
         broadcasterConnectedAt = new Date();
         console.info(`[USALB relay] broadcaster handoff committed on sequence=${replacementSequence?.toString() ?? "legacy"}; duplicateFirstFrame=${duplicateOfLastFrame}; handoff=${SEAMLESS_HANDOFF_PROTOCOL}.`);
 
-        if (!duplicateOfLastFrame) relay(raw);
+        if (!duplicateOfLastFrame) relay(raw, "new");
 
         // The replacement is now authoritative, but do not close the old
         // socket yet. The Broadcaster waits for this acknowledgement before
@@ -609,6 +656,13 @@ export function getLiveSnapshot() {
     lastBroadcasterCloseCode,
     lastBroadcasterCloseReason,
     lastResetReason,
+    lastPcmAcceptedAtMs: lastPcmAcceptedAtMs !== null ? new Date(lastPcmAcceptedAtMs) : null,
+    lastPcmAcceptedSource,
+    lastPcmAcceptedSequence: lastPcmAcceptedSequence?.toString() ?? null,
+    handoffCandidateFirstAtMs: handoffCandidateFirstAtMs !== null ? new Date(handoffCandidateFirstAtMs) : null,
+    handoffCandidateFirstSequence: handoffCandidateFirstSequence?.toString() ?? null,
+    handoffCandidateAcceptedAtMs: handoffCandidateAcceptedAtMs !== null ? new Date(handoffCandidateAcceptedAtMs) : null,
+    handoffGapMs,
   };
 }
 
