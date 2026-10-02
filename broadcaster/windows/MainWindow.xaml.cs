@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO;
 using System.Collections.Concurrent;
@@ -50,6 +51,7 @@ public partial class MainWindow : Window
     readonly ConcurrentQueue<string> diagnosticEvents = new();
     long framesSent;
     long bytesSent;
+    ulong pcmSequence;
     int reconnectCount;
     DateTime liveStartedAt;
     DateTime audioConnectionConnectedAt;
@@ -451,6 +453,7 @@ public partial class MainWindow : Window
             audioConnectionConnectedAt = DateTime.Now;
             framesSent = 0;
             bytesSent = 0;
+            pcmSequence = 0;
             lastAudioAt = DateTime.Now;
             lastConnectionState = "CONNECTED";
             lastAudioState = "FLOWING";
@@ -659,13 +662,14 @@ public partial class MainWindow : Window
                     // both sockets. The old source remains authoritative until the
                     // replacement has received the same live frame, so the server
                     // never has to wait for the replacement to start producing audio.
-                    await primaryConnection.SendAudioAsync(output, token);
+                    var sequence = pcmSequence++;
+                    await primaryConnection.SendAudioAsync(output, sequence, token);
 
                     if (candidateConnection is not null && ReferenceEquals(candidateConnection, rotationCandidate))
                     {
                         try
                         {
-                            await candidateConnection.SendAudioAsync(output, token);
+                            await candidateConnection.SendAudioAsync(output, sequence, token);
                             // Do not close the old socket until the server confirms
                             // that this replacement frame was accepted as the live source.
                             await candidateConnection.WaitForHandoffCommittedAsync(token);
@@ -962,15 +966,16 @@ internal sealed class PcmWebSocketConnection : IAsyncDisposable
         });
     }
 
-    public async Task SendAudioAsync(byte[] pcm, CancellationToken token)
+    public async Task SendAudioAsync(byte[] pcm, ulong sequence, CancellationToken token)
     {
         if (disposed) throw new ObjectDisposedException(nameof(PcmWebSocketConnection));
         if (disconnectSignal.Task.IsCompleted && disconnectSignal.Task.Result is Exception error)
             throw new IOException("USALB live relay connection was lost.", error);
 
-        var packet = new byte[4 + pcm.Length];
-        packet[0] = 0x50; packet[1] = 0x43; packet[2] = 0x4d; packet[3] = 0x31;
-        Buffer.BlockCopy(pcm, 0, packet, 4, pcm.Length);
+        var packet = new byte[12 + pcm.Length];
+        packet[0] = 0x50; packet[1] = 0x43; packet[2] = 0x4d; packet[3] = 0x32;
+        BinaryPrimitives.WriteUInt64LittleEndian(packet.AsSpan(4, 8), sequence);
+        Buffer.BlockCopy(pcm, 0, packet, 12, pcm.Length);
         await socket.SendAsync(packet.AsMemory(), WebSocketMessageType.Binary, true, token);
     }
 
