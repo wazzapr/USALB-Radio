@@ -338,7 +338,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
           lastPcmSequence !== null &&
           replacementSequence < lastPcmSequence;
         if (sequenceIsStale) {
-          console.warn(`[USALB relay] ignoring stale replacement PCM sequence=${replacementSequence.toString()} last=${lastPcmSequence.toString()}; waiting for candidate to catch up.`);
+          console.warn(`[USALB relay] ignoring stale replacement PCM sequence=${replacementSequence.toString()} last=${String(lastPcmSequence)}; waiting for candidate to catch up.`);
           return;
         }
 
