@@ -109,33 +109,6 @@ function startEncoders(): boolean {
   } catch { stopEncoders(); return false; }
 }
 
-function stopPcmContinuity(): void {
-  if (pcmContinuityTimer) {
-    clearInterval(pcmContinuityTimer);
-    pcmContinuityTimer = null;
-  }
-}
-
-function startPcmContinuity(): void {
-  stopPcmContinuity();
-  pcmContinuityTimer = setInterval(() => {
-    if (!live || broadcastMode !== "pcm" || !lastPcmFrame || !encoders.size) return;
-    // Broadcaster PCM is 20 ms/frame. Only bridge a genuine missed frame;
-    // normal frames refresh lastPcmFrameAt before this timer can fire.
-    if (lastPcmFrameAt <= 0 || Date.now() - lastPcmFrameAt < 28) return;
-    for (const encoder of encoders.values()) {
-      if (encoder.process.stdin.destroyed || encoder.process.stdin.writableEnded) continue;
-      try {
-        encoder.process.stdin.write(lastPcmFrame);
-        lastPcmFrameAt = Date.now();
-      } catch {
-        reset("PCM continuity write failed");
-        return;
-      }
-    }
-  }, 10);
-}
-
 function stopEncoders(): void {
   for (const encoder of encoders.values()) {
     try { encoder.process.stdin.end(); } catch {}
