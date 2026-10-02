@@ -9,6 +9,8 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 const LIVE_SOCKET_PATH = "/api/live/ws";
 const PCM_MAGIC = Buffer.from([0x50, 0x43, 0x4d, 0x31]);
+const PCM_MAGIC_V2 = Buffer.from([0x50, 0x43, 0x4d, 0x32]);
+const PCM_V2_HEADER_BYTES = PCM_MAGIC_V2.length + 8;
 // Keep roughly 10–13 seconds of 320 kbps MP3 for a new listener. This gives the browser a safety cushion without changing the live relay timeline.
 const MAX_RECENT_BYTES = 512 * 1024;
 const QUALITY_PATHS = new Map<string, 320>([
@@ -48,11 +50,12 @@ let pcmPending = Buffer.alloc(0);
 // the same live frame during handoff; identical first frames are ignored to avoid
 // a duplicate 20 ms frame in the listener stream.
 let lastPcmFrame: Buffer | null = null;
+let lastPcmSequence: bigint | null = null;
 let broadcasterDisconnectTimer: NodeJS.Timeout | null = null;
 const BROADCASTER_RECONNECT_GRACE_MS = 30_000;
 const BROADCASTER_WS_PING_MS = 20_000;
 // Server-side handoff protocol: keep the current broadcaster authoritative until the replacement has sent its first PCM frame.
-const SEAMLESS_HANDOFF_PROTOCOL = "first-pcm-v2";
+const SEAMLESS_HANDOFF_PROTOCOL = "pcm-sequence-v1";
 
 function sendJson(socket: WebSocket, payload: Record<string, unknown>): void {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
@@ -117,35 +120,53 @@ function stopEncoders(): void {
   encoders.clear();
 }
 
-function pcmPayload(chunk: Buffer): Buffer | null {
-  if (!chunk.subarray(0, PCM_MAGIC.length).equals(PCM_MAGIC)) return null;
-  return chunk.subarray(PCM_MAGIC.length);
+function parsePcmPacket(chunk: Buffer): { payload: Buffer; sequence: bigint | null } | null {
+  if (chunk.length >= PCM_V2_HEADER_BYTES && chunk.subarray(0, PCM_MAGIC_V2.length).equals(PCM_MAGIC_V2)) {
+    return {
+      sequence: chunk.readBigUInt64LE(PCM_MAGIC_V2.length),
+      payload: chunk.subarray(PCM_V2_HEADER_BYTES),
+    };
+  }
+  if (chunk.length >= PCM_MAGIC.length && chunk.subarray(0, PCM_MAGIC.length).equals(PCM_MAGIC)) {
+    return { sequence: null, payload: chunk.subarray(PCM_MAGIC.length) };
+  }
+  return null;
 }
 
 function relay(chunk: Buffer): void {
   if (broadcastMode === "pcm") {
-    // The broadcaster sends: [PCM1 magic][exact 20 ms PCM frame]. TCP/HTTP
-    // may split or coalesce these writes, so never assume one request "data"
-    // event contains one complete frame.
     pcmPending = pcmPending.length ? Buffer.concat([pcmPending, chunk]) : Buffer.from(chunk);
     const frameBytes = Math.max(1, Math.round(pcmSampleRate * pcmChannels * 2 * 0.02));
-    const packetBytes = PCM_MAGIC.length + frameBytes;
 
     while (pcmPending.length >= PCM_MAGIC.length) {
-      const magicAt = pcmPending.indexOf(PCM_MAGIC);
+      const v2At = pcmPending.indexOf(PCM_MAGIC_V2);
+      const v1At = pcmPending.indexOf(PCM_MAGIC);
+      let magicAt = -1;
+      let headerBytes = 0;
+      if (v2At >= 0 && (v1At < 0 || v2At <= v1At)) {
+        magicAt = v2At;
+        headerBytes = PCM_V2_HEADER_BYTES;
+      } else if (v1At >= 0) {
+        magicAt = v1At;
+        headerBytes = PCM_MAGIC.length;
+      }
       if (magicAt < 0) {
-        pcmPending = pcmPending.subarray(Math.max(0, pcmPending.length - PCM_MAGIC.length + 1));
+        pcmPending = pcmPending.subarray(Math.max(0, pcmPending.length - PCM_MAGIC_V2.length + 1));
         return;
       }
       if (magicAt > 0) pcmPending = pcmPending.subarray(magicAt);
-      if (pcmPending.length < packetBytes) return;
+      if (pcmPending.length < headerBytes + frameBytes) return;
 
-      const payload = pcmPending.subarray(PCM_MAGIC.length, packetBytes);
-      pcmPending = pcmPending.subarray(packetBytes);
-      lastPcmFrame = Buffer.from(payload);
-          for (const encoder of encoders.values()) {
+      const packet = pcmPending.subarray(0, headerBytes + frameBytes);
+      const parsed = parsePcmPacket(packet);
+      pcmPending = pcmPending.subarray(headerBytes + frameBytes);
+      if (!parsed) continue;
+
+      lastPcmFrame = Buffer.from(parsed.payload);
+      if (parsed.sequence !== null) lastPcmSequence = parsed.sequence;
+      for (const encoder of encoders.values()) {
         if (!encoder.process.stdin.destroyed) {
-          try { encoder.process.stdin.write(payload); } catch { reset(); return; }
+          try { encoder.process.stdin.write(parsed.payload); } catch { reset(); return; }
         }
       }
     }
@@ -207,6 +228,7 @@ function reset(reason = "reset"): void {
   broadcasterConnectedAt = null;
   pcmPending = Buffer.alloc(0);
   lastPcmFrame = null;
+  lastPcmSequence = null;
   for (const socket of wsListeners) { try { socket.close(1000, "Broadcast ended"); } catch {} }
   wsListeners.clear();
   for (const encoder of encoders.values()) { try { encoder.process.stdin.end(); } catch {} try { encoder.process.kill("SIGTERM"); } catch {} }
@@ -272,7 +294,7 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
   // frame, so listeners do not see a deliberate handoff gap.
   if (previousBroadcaster && previousBroadcaster !== socket) {
     pendingBroadcaster = socket;
-    console.info(`[USALB relay] broadcaster replacement connected; handoff=${SEAMLESS_HANDOFF_PROTOCOL}; waiting for first PCM frame; resuming=${resumingExistingBroadcast}`);
+    console.info(`[USALB relay] broadcaster replacement connected; handoff=${SEAMLESS_HANDOFF_PROTOCOL}; waiting for matching PCM sequence; resuming=${resumingExistingBroadcast}`);
   } else {
     broadcaster = socket;
     pendingBroadcaster = null;
@@ -307,17 +329,30 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
       if (pendingBroadcaster === socket && broadcaster !== socket) {
         const previous = broadcaster;
         const raw = rawBuffer(data);
-        const replacementPayload = pcmPayload(raw);
+        const parsed = parsePcmPacket(raw);
+        if (!parsed) return;
+
+        const replacementSequence = parsed.sequence;
+        const sequenceIsStale =
+          replacementSequence !== null &&
+          lastPcmSequence !== null &&
+          replacementSequence < lastPcmSequence;
+        if (sequenceIsStale) {
+          console.warn(`[USALB relay] ignoring stale replacement PCM sequence=${replacementSequence.toString()} last=${lastPcmSequence.toString()}; waiting for candidate to catch up.`);
+          return;
+        }
+
         const duplicateOfLastFrame =
-          replacementPayload !== null &&
-          lastPcmFrame !== null &&
-          replacementPayload.length === lastPcmFrame.length &&
-          replacementPayload.equals(lastPcmFrame);
+          replacementSequence !== null && lastPcmSequence !== null
+            ? replacementSequence === lastPcmSequence
+            : lastPcmFrame !== null &&
+              parsed.payload.length === lastPcmFrame.length &&
+              parsed.payload.equals(lastPcmFrame);
 
         pendingBroadcaster = null;
         broadcaster = socket;
         broadcasterConnectedAt = new Date();
-        console.info(`[USALB relay] broadcaster handoff committed on mirrored live PCM frame; duplicateFirstFrame=${duplicateOfLastFrame}; handoff=${SEAMLESS_HANDOFF_PROTOCOL}.`);
+        console.info(`[USALB relay] broadcaster handoff committed on sequence=${replacementSequence?.toString() ?? "legacy"}; duplicateFirstFrame=${duplicateOfLastFrame}; handoff=${SEAMLESS_HANDOFF_PROTOCOL}.`);
 
         if (!duplicateOfLastFrame) relay(raw);
 
