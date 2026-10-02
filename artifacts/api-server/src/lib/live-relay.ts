@@ -380,12 +380,14 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
             " lastOldSequence=" + (lastPcmAcceptedSequence?.toString() ?? "unknown")
           );
         }
-        const sequenceIsStale =
+        const sequenceIsAligned =
           replacementSequence !== null &&
           lastPcmSequence !== null &&
-          replacementSequence < lastPcmSequence;
-        if (sequenceIsStale) {
-          console.warn(`[USALB relay] ignoring stale replacement PCM sequence=${replacementSequence.toString()} last=${String(lastPcmSequence)}; waiting for candidate to catch up.`);
+          replacementSequence === lastPcmSequence;
+        if (replacementSequence !== null && lastPcmSequence !== null && !sequenceIsAligned) {
+          console.warn(
+            `[USALB relay] waiting for replacement PCM sequence alignment: candidate=${replacementSequence.toString()} current=${lastPcmSequence.toString()}; handoff requires the exact same PCM boundary.`
+          );
           return;
         }
 
@@ -412,7 +414,14 @@ async function attachBroadcaster(socket: WebSocket, token: string | null, reques
           protocol: SEAMLESS_HANDOFF_PROTOCOL,
           duplicateFirstFrame: duplicateOfLastFrame,
         });
-        console.info("[USALB relay] handoff acknowledged to replacement; old broadcaster remains open until client closes it.");
+        // The replacement is already authoritative at the exact PCM boundary.
+        // Close the old transport only after that commit so the old socket can
+        // never create a gap, while also preventing stale rotation sockets from
+        // accumulating on the server.
+        if (previous && previous !== socket && previous.readyState === WebSocket.OPEN) {
+          try { previous.close(1000, "Handoff complete"); } catch {}
+        }
+        console.info("[USALB relay] handoff acknowledged; old broadcaster closed after exact PCM-boundary commit.");
       } else if (broadcaster === socket) {
         relay(rawBuffer(data));
       }
