@@ -564,6 +564,7 @@ public partial class MainWindow : Window
         float lastBass = float.NaN, lastMid = float.NaN, lastTreble = float.NaN;
         Task<PcmWebSocketConnection>? rotationTask = null;
         PcmWebSocketConnection? rotationCandidate = null;
+        Task? handoffCommitTask = null;
         DateTime nextRotationAttemptAt = DateTime.MinValue;
         try
         {
@@ -652,56 +653,65 @@ public partial class MainWindow : Window
                     }
                 }
 
+                // The handoff acknowledgement must NEVER block this 20 ms audio loop.
+                // The old socket keeps sending continuously while the replacement receives
+                // mirrored frames. Waiting here would stop both sends for the network round trip
+                // to the server and can directly create the audible handoff hole we are fixing.
+                if (handoffCommitTask is not null && handoffCommitTask.IsCompleted)
+                {
+                    try
+                    {
+                        await handoffCommitTask;
+                        if (rotationCandidate is not null)
+                        {
+                            var previous = audioConnection;
+                            audioConnection = rotationCandidate;
+                            rotationCandidate = null;
+                            audioConnectionConnectedAt = DateTime.Now;
+                            reconnectCount++;
+                            lastConnectionState = "CONNECTED";
+                            AddDiagnostic("Planned WebSocket handoff committed asynchronously after mirrored live PCM; audio loop never waited for the ACK.");
+                            if (previous is not null && !ReferenceEquals(previous, audioConnection))
+                                AddDiagnostic("Replacement is live; old WebSocket remains open for server-side close.");
+                        }
+                    }
+                    catch (Exception ex) when (!token.IsCancellationRequested)
+                    {
+                        if (rotationCandidate is not null)
+                        {
+                            try { await rotationCandidate.DisposeAsync(); } catch { }
+                            rotationCandidate = null;
+                        }
+                        nextRotationAttemptAt = DateTime.Now.AddSeconds(30);
+                        AddDiagnostic("Planned replacement could not accept mirrored PCM; continuing on the existing WebSocket: " + ex.GetBaseException().Message);
+                    }
+                    finally
+                    {
+                        handoffCommitTask = null;
+                    }
+                }
+
                 var primaryConnection = audioConnection;
                 if (primaryConnection is null) continue;
                 var candidateConnection = rotationCandidate;
 
                 try
                 {
-                    // Once the replacement is READY, mirror each live PCM frame to
-                    // both sockets. The old source remains authoritative until the
-                    // replacement has received the same live frame, so the server
-                    // never has to wait for the replacement to start producing audio.
+                    // Send every PCM frame on the current source without waiting for
+                    // the handoff acknowledgement. When a replacement is READY, the
+                    // exact same sequence is mirrored to it. The server commits at that
+                    // sequence boundary and the public MP3 encoder never restarts.
                     var sequence = pcmSequence++;
                     await primaryConnection.SendAudioAsync(output, sequence, token);
 
                     if (candidateConnection is not null && ReferenceEquals(candidateConnection, rotationCandidate))
                     {
-                        try
+                        await candidateConnection.SendAudioAsync(output, sequence, token);
+                        if (handoffCommitTask is null)
                         {
-                            await candidateConnection.SendAudioAsync(output, sequence, token);
-                            // Do not close the old socket until the server confirms
-                            // that this replacement frame was accepted as the live source.
-                            await candidateConnection.WaitForHandoffCommittedAsync(token);
-                        }
-                        catch (Exception ex) when (!token.IsCancellationRequested)
-                        {
-                            try { await candidateConnection.DisposeAsync(); } catch { }
-                            if (ReferenceEquals(rotationCandidate, candidateConnection))
-                                rotationCandidate = null;
-                            nextRotationAttemptAt = DateTime.Now.AddSeconds(30);
-                            AddDiagnostic("Planned replacement could not accept mirrored PCM; continuing on the existing WebSocket: " + ex.GetBaseException().Message);
-                            candidateConnection = null;
-                        }
-                    }
-
-                    if (candidateConnection is not null && ReferenceEquals(candidateConnection, rotationCandidate))
-                    {
-                        var previous = audioConnection;
-                        audioConnection = candidateConnection;
-                        rotationCandidate = null;
-                        audioConnectionConnectedAt = DateTime.Now;
-                        reconnectCount++;
-                        lastConnectionState = "CONNECTED";
-                        AddDiagnostic("Planned WebSocket handoff committed after mirrored live PCM; old and new sources overlapped for the handoff.");
-
-                        // The server now owns the old-socket close. Do not abort the
-                        // previous transport locally: it must remain open after the
-                        // server has promoted the replacement so the handoff cannot
-                        // be disturbed by a client-side close race.
-                        if (previous is not null && !ReferenceEquals(previous, candidateConnection))
-                        {
-                            AddDiagnostic("Replacement is live; leaving old WebSocket open for server-side handoff close.");
+                            // Observe the ACK in parallel. This task is intentionally
+                            // not awaited from the 20 ms audio loop.
+                            handoffCommitTask = candidateConnection.WaitForHandoffCommittedAsync(token);
                         }
                     }
 
@@ -724,6 +734,7 @@ public partial class MainWindow : Window
                             try { await rotationCandidate.DisposeAsync(); } catch { }
                             rotationCandidate = null;
                         }
+                        handoffCommitTask = null;
 
                         nextRotationAttemptAt = DateTime.Now.AddSeconds(30);
                         AddDiagnostic("Broadcaster WebSocket disconnected while sending audio: " + ex.GetBaseException().Message);
