@@ -1,3 +1,10 @@
+## 1.0.29
+
+- Keeps the 20 ms broadcaster audio loop running while the server confirms a planned WebSocket handoff.
+- Mirrors the exact same PCM sequence to the replacement without waiting for the handoff ACK.
+- Server commits rotation only when the replacement reaches the exact current PCM sequence, then closes the old socket after the commit.
+- Keeps the existing MP3 encoder and listener stream running through rotation.
+
 ## 1.0.28
 
 - Adds explicit 20 ms PCM sequence numbers to broadcaster packets.
