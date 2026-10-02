@@ -1,3 +1,9 @@
+## 1.0.28
+
+- Adds explicit 20 ms PCM sequence numbers to broadcaster packets.
+- Server handoff rejects stale replacement audio and commits only on an aligned live sequence, without repeating audio or adding listener buffering.
+- Keeps one continuous MP3 encoder and listener stream during broadcaster rotation.
+
 ## 1.0.27
 
 - Pairs the stable v1.0.23/v1.0.24 broadcaster transport with the server-side live PCM continuity fix.
