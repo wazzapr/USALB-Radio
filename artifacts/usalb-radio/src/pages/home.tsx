@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
-import { useEffect, useRef, useState } from "react";
 import { motion, useScroll, useSpring, useTransform } from "framer-motion";
 import { getGetStationQueryKey, getGetStreamStatusQueryKey, useGetStation, useGetStreamStatus } from "@workspace/api-client-react";
 import {
@@ -726,6 +725,8 @@ export default function Home() {
 
       <section className="relative -mt-[18vh] overflow-hidden bg-[#030607] px-5 pb-28 pt-[18vh] sm:px-8 sm:pb-40">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-transparent via-[#030607]/70 to-[#030607]" />
+      </section>
+
       <section className="relative overflow-hidden border-y border-white/10 bg-[#071014] px-5 py-28 sm:px-8 sm:py-40">
         <div className="mx-auto max-w-[1500px]">
           <p className="eyebrow text-[#c8102e]">The USALB journey</p>
