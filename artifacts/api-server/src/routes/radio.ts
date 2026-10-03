@@ -48,6 +48,34 @@ function nowPlayingResponse(track: typeof nowPlayingTable.$inferSelect) {
   });
 }
 
+router.get("/news", async (_req, res): Promise<void> => {
+  try {
+    const response = await fetch("https://usalbtv.com/wp-json/wp/v2/posts?per_page=6&_embed=1", {
+      headers: { accept: "application/json" },
+    });
+    if (!response.ok) throw new Error(`USALB TV returned ${response.status}`);
+    const posts = await response.json();
+    const items = Array.isArray(posts) ? posts.map((post: any) => ({
+      id: Number(post.id),
+      date: String(post.date || ""),
+      link: String(post.link || "https://usalbtv.com"),
+      title: String(post.title?.rendered || "").replace(/<[^>]+>/g, ""),
+      excerpt: String(post.excerpt?.rendered || "").replace(/<[^>]+>/g, "").trim(),
+      image:
+        post._embedded?.["wp:featuredmedia"]?.[0]?.source_url ||
+        post.jetpack_featured_media_url ||
+        undefined,
+    })) : [];
+    res.json({ items });
+  } catch (error) {
+    res.status(502).json({
+      error: "USALB TV news feed unavailable",
+      detail: error instanceof Error ? error.message : "Unknown error",
+      items: [],
+    });
+  }
+});
+
 router.get("/station", async (_req, res): Promise<void> => {
   const [station] = await db.select().from(stationSettingsTable).limit(1);
   if (!station) {
