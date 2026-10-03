@@ -30,6 +30,45 @@ function SignalBars({ active }: { active: boolean }) {
   );
 }
 
+function USAAlbaniaGlobe({ progress }: { progress: any }) {
+  const rotate = useTransform(progress, [0, 1], [-8, 8]);
+  const route = useTransform(progress, [0, .5, 1], [0, 1, 0]);
+  const pulse = useTransform(progress, [0, .5, 1], [.65, 1, .65]);
+
+  return (
+    <div className="relative mx-auto aspect-square w-[min(82vw,760px)] [perspective:1200px]" aria-label="Animated USA to Albania connection">
+      <motion.div style={{ rotateY: rotate }} className="relative h-full w-full [transform-style:preserve-3d]">
+        <div className="absolute inset-[7%] rounded-full border border-white/15 bg-[radial-gradient(circle_at_35%_28%,rgba(255,255,255,.16),rgba(10,18,22,.82)_52%,#020405_100%)] shadow-[inset_-40px_-30px_90px_rgba(0,0,0,.8),0_0_100px_rgba(255,204,51,.08)]" />
+        <div className="absolute inset-[11%] rounded-full opacity-35" style={{ background: "repeating-radial-gradient(circle at 48% 45%, transparent 0 34px, rgba(255,255,255,.06) 35px 36px)" }} />
+        <div className="absolute inset-[19%] rounded-full border border-dashed border-white/10" />
+        <svg viewBox="0 0 800 800" className="absolute inset-[8%] h-[84%] w-[84%] overflow-visible">
+          <defs>
+            <linearGradient id="usalbRoute" x1="0" x2="1">
+              <stop offset="0" stopColor="#e11d48" />
+              <stop offset=".5" stopColor="#ffcc33" />
+              <stop offset="1" stopColor="#e11d48" />
+            </linearGradient>
+            <filter id="usalbGlow"><feGaussianBlur stdDeviation="5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          </defs>
+          <path d="M185 350 C300 250 405 280 515 365 C585 420 625 425 655 410" fill="none" stroke="rgba(255,255,255,.12)" strokeWidth="2" strokeDasharray="7 13" />
+          <motion.path d="M185 350 C300 250 405 280 515 365 C585 420 625 425 655 410" fill="none" stroke="url(#usalbRoute)" strokeWidth="5" strokeLinecap="round" filter="url(#usalbGlow)" style={{ pathLength: route }} />
+          <circle cx="185" cy="350" r="11" fill="#e11d48" filter="url(#usalbGlow)" />
+          <circle cx="655" cy="410" r="11" fill="#e11d48" filter="url(#usalbGlow)" />
+          <motion.circle cx="185" cy="350" r="24" fill="none" stroke="#ffcc33" strokeWidth="2" style={{ opacity: pulse }} />
+          <motion.circle cx="655" cy="410" r="24" fill="none" stroke="#ffcc33" strokeWidth="2" style={{ opacity: pulse }} />
+        </svg>
+        <div className="absolute left-[17%] top-[43%] -translate-y-1/2">
+          <span className="eyebrow rounded-full border border-white/15 bg-black/35 px-3 py-2 text-white/75 backdrop-blur-md">USA</span>
+        </div>
+        <div className="absolute right-[10%] top-[50%] -translate-y-1/2">
+          <span className="eyebrow rounded-full border border-white/15 bg-black/35 px-3 py-2 text-white/75 backdrop-blur-md">ALBANIA</span>
+        </div>
+        <div className="absolute inset-[4%] rounded-full border border-[#ffcc33]/15 shadow-[0_0_70px_rgba(255,204,51,.08)]" />
+      </motion.div>
+    </div>
+  );
+}
+
 function CinematicMediaJourney() {
   const sectionRef = useRef<HTMLElement>(null);
   const { scrollYProgress: mediaProgress } = useScroll({
@@ -573,6 +612,25 @@ export default function Home() {
       </section>
 
       <CinematicMediaJourney />
+
+      <section className="relative overflow-hidden bg-[#030607] px-5 py-28 sm:px-8 sm:py-40">
+        <div className="mx-auto grid max-w-[1500px] items-center gap-12 lg:grid-cols-[.8fr_1.2fr]">
+          <div className="relative z-10">
+            <div className="eyebrow flex items-center gap-3 text-[#ffcc33]"><span className="h-px w-10 bg-[#ffcc33]" /> USA ↔ ALBANIA</div>
+            <h2 className="mt-5 max-w-xl font-display text-[clamp(3rem,6vw,6.5rem)] font-semibold leading-[.88] tracking-[-.06em] text-white">
+              One signal.<br/><span className="text-white/45">Two homes.</span>
+            </h2>
+            <p className="mt-7 max-w-lg text-base leading-7 text-white/60 sm:text-lg">
+              A living connection between the United States and Albania — designed into the heart of USALB RADIO.
+            </p>
+            <div className="mt-10 grid max-w-md grid-cols-2 gap-3">
+              <div className="glass rounded-2xl p-5"><div className="font-mono text-[10px] uppercase tracking-[.18em] text-white/35">Origin</div><div className="mt-2 font-display text-xl text-white">United States</div></div>
+              <div className="glass rounded-2xl p-5"><div className="font-mono text-[10px] uppercase tracking-[.18em] text-white/35">Destination</div><div className="mt-2 font-display text-xl text-white">Albania</div></div>
+            </div>
+          </div>
+          <USAAlbaniaGlobe progress={smoothProgress} />
+        </div>
+      </section>
 
       <section className="relative overflow-hidden border-y border-white/10 bg-[#071014] px-5 py-28 sm:px-8 sm:py-40">
         <div className="mx-auto max-w-[1500px]">
