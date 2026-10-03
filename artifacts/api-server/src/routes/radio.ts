@@ -23,7 +23,7 @@ const router: IRouter = Router();
 const chatRate = new Map<string, number>();
 
 function configuredStreamUrl(storedUrl: string): string {
-  return process.env.PUBLIC_RADIO_STREAM_URL || "/api/radio-stream";
+  return process.env.PUBLIC_RADIO_STREAM_URL || storedUrl || "";
 }
 
 function stationResponse(station: typeof stationSettingsTable.$inferSelect) {
