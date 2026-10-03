@@ -515,7 +515,7 @@ export default function Home() {
           <a href="#news" className="hidden text-[10px] font-bold uppercase tracking-[.16em] text-white/55 transition hover:text-white sm:inline">{language === "al" ? "Lajme" : "News"}</a>
           <span className="hidden eyebrow text-white/45 md:inline">SHBA ↔ SHQIPËRI · LIVE</span>
           <div className="flex items-center rounded-full border border-white/10 bg-black/30 p-1 backdrop-blur-md" aria-label="Language">
-            <button onClick={() => setLanguage("sq")} className={cn("rounded-full px-3 py-1.5 text-[10px] font-bold transition", language === "al" ? "bg-[#ffcc33] text-black" : "text-white/55 hover:text-white")}>AL</button>
+            <button onClick={() => setLanguage("al")} className={cn("rounded-full px-3 py-1.5 text-[10px] font-bold transition", language === "al" ? "bg-[#ffcc33] text-black" : "text-white/55 hover:text-white")}>AL</button>
             <button onClick={() => setLanguage("en")} className={cn("rounded-full px-3 py-1.5 text-[10px] font-bold transition", language === "en" ? "bg-[#c8102e] text-white" : "text-white/55 hover:text-white")}>EN</button>
           </div>
           {installPrompt && <button onClick={() => void installApp()} className="hidden items-center gap-2 rounded-full border border-[#ffcc33]/30 bg-[#ffcc33]/10 px-4 py-2 text-xs font-bold text-[#ffcc33] transition hover:bg-[#ffcc33]/20 sm:flex"><Download className="h-3.5 w-3.5" /> {language === "al" ? "Instalo" : "Install app"}</button>}
