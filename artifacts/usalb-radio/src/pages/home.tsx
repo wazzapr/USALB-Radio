@@ -34,36 +34,42 @@ type NewsItem = {
 function NewsFeed({ language }: { language: SiteLanguage }) {
   const [items, setItems] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(true);
+  const [newsError, setNewsError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
+
     const load = async () => {
       setNewsLoading(true);
+      setNewsError("");
       try {
-        const response = await fetch("https://public-api.wordpress.com/rest/v1.1/sites/usalbtv.com/posts/?number=6&fields=ID,date,URL,title,excerpt,featured_image");
+        const response = await fetch("/api/news", {
+          headers: { accept: "application/json" },
+          cache: "no-store",
+        });
         if (!response.ok) throw new Error("News feed unavailable");
         const data = await response.json();
-        const posts = Array.isArray(data?.posts) ? data.posts : [];
-        if (!cancelled) {
-          setItems(posts.map((post: any) => ({
-            id: Number(post.ID),
-            date: post.date,
-            link: post.URL,
-            title: String(post.title || "").replace(/<[^>]+>/g, ""),
-            excerpt: String(post.excerpt || "").replace(/<[^>]+>/g, "").trim(),
-            image: post.featured_image || undefined,
-          })));
-        }
+        const nextItems = Array.isArray(data?.items) ? data.items : [];
+        if (!cancelled) setItems(nextItems);
       } catch {
-        if (!cancelled) setItems([]);
+        if (!cancelled) {
+          setItems([]);
+          setNewsError(language === "al"
+            ? "Lajmet nuk mund të ngarkohen tani."
+            : "News could not be loaded right now.");
+        }
       } finally {
         if (!cancelled) setNewsLoading(false);
       }
     };
+
     void load();
     const timer = window.setInterval(load, 5 * 60 * 1000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, []);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [language]);
 
   return (
     <section id="news" className="relative overflow-hidden border-y border-white/10 bg-[#060b0d] px-5 py-28 sm:px-8 sm:py-40">
@@ -71,12 +77,12 @@ function NewsFeed({ language }: { language: SiteLanguage }) {
       <div className="relative mx-auto max-w-[1500px]">
         <div className="flex flex-col justify-between gap-7 md:flex-row md:items-end">
           <div>
-            <div className="eyebrow flex items-center gap-3 text-[#ffcc33]"><span className="h-px w-10 bg-[#ffcc33]" /> {language === "al" ? "USALB NEWS" : "USALB NEWS"}</div>
+            <div className="eyebrow flex items-center gap-3 text-[#ffcc33]"><span className="h-px w-10 bg-[#ffcc33]" /> USALB NEWS</div>
             <h2 className="mt-5 max-w-3xl font-display text-[clamp(3rem,6vw,6.5rem)] font-semibold leading-[.88] tracking-[-.06em] text-white">
               {language === "al" ? "Lajmet e fundit." : "Latest news."}
             </h2>
             <p className="mt-6 max-w-2xl text-base leading-7 text-white/55 sm:text-lg">
-              {language === "al" ? "Të rejat më të fundit nga redaksia e USALB." : "The latest stories from the USALB newsroom."}
+              {language === "al" ? "Të rejat më të fundit nga redaksia e USALB TV." : "The latest stories from the USALB TV newsroom."}
             </p>
           </div>
           <a href="https://usalbtv.com" target="_blank" rel="noreferrer" className="text-xs font-bold uppercase tracking-[.18em] text-[#ffcc33] transition hover:text-white">
@@ -85,7 +91,11 @@ function NewsFeed({ language }: { language: SiteLanguage }) {
         </div>
 
         {newsLoading && (
-          <div className="mt-12 h-64 animate-pulse rounded-[2rem] border border-white/10 bg-white/[.03]" />
+          <div className="mt-12 grid gap-5 lg:grid-cols-12">
+            <div className="h-72 animate-pulse rounded-[1.75rem] border border-white/10 bg-white/[.03] lg:col-span-7" />
+            <div className="h-32 animate-pulse rounded-[1.75rem] border border-white/10 bg-white/[.03] lg:col-span-5" />
+            <div className="h-32 animate-pulse rounded-[1.75rem] border border-white/10 bg-white/[.03] lg:col-span-5" />
+          </div>
         )}
 
         {!newsLoading && items.length > 0 && (
@@ -107,14 +117,15 @@ function NewsFeed({ language }: { language: SiteLanguage }) {
 
         {!newsLoading && items.length === 0 && (
           <div className="mt-12 rounded-3xl border border-white/10 bg-white/[.03] p-8 text-sm text-white/45">
-            {language === "al" ? "Lajmet do të shfaqen këtu sapo burimi i USALB TV të jetë i disponueshëm." : "News will appear here when the USALB TV feed is available."}
+            {newsError || (language === "al"
+              ? "Nuk ka lajme të disponueshme tani."
+              : "No news is available right now.")}
           </div>
         )}
       </div>
     </section>
   );
 }
-
 function SignalBars({ active }: { active: boolean }) {
   return (
     <div className="flex h-7 items-end gap-1.5" aria-label={active ? "Audio is playing" : "Audio is paused"}>
