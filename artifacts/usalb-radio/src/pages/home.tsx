@@ -30,6 +30,122 @@ function SignalBars({ active }: { active: boolean }) {
   );
 }
 
+function CinematicMediaJourney() {
+  const sectionRef = useRef<HTMLElement>(null);
+  const { scrollYProgress: mediaProgress } = useScroll({
+    target: sectionRef,
+    offset: ["start start", "end end"],
+  });
+
+  const scenes = [
+    {
+      src: "https://images.pexels.com/videos/5727833/city-city-at-night-city-lights-city-night-5727833.jpeg?auto=compress&dpr=1&h=750&w=1260",
+      alt: "New York City skyline at night",
+      kicker: "01 · USA",
+      title: "The signal starts here.",
+      copy: "New York energy. Albanian voices. A city full of people carrying home with them.",
+      credit: "Visual: CityXcape / Pexels",
+    },
+    {
+      src: "https://images.pexels.com/videos/29007631/4k-4k-background-4k-drone-4k-drone-footage-29007631.jpeg?auto=compress&dpr=1&h=750&w=1260",
+      alt: "Albanian coastline and mountains",
+      kicker: "02 · ATLANTIC → ADRIATIC",
+      title: "Across the distance.",
+      copy: "The ocean becomes the bridge — a continuous signal connecting two sides of the diaspora.",
+      credit: "Visual: Sergey Guk / Pexels",
+    },
+    {
+      src: "https://images.pexels.com/videos/33119145/aerial-albania-architecture-building-33119145.jpeg?dpr=1&h=750&w=1260",
+      alt: "Tirana aerial cityscape",
+      kicker: "03 · ALBANIA",
+      title: "Back to the source.",
+      copy: "Tirana, Albania and the sound of home — carried live through USALB RADIO.",
+      credit: "Visual: Albanian Filmmaker / Pexels",
+    },
+  ];
+
+  const opacities = scenes.map((_, index) => {
+    if (index === 0) return useTransform(mediaProgress, [0, .08, .30, .40], [1, 1, 1, 0]);
+    if (index === 1) return useTransform(mediaProgress, [.30, .42, .58, .70], [0, 1, 1, 0]);
+    return useTransform(mediaProgress, [.58, .70, .94, 1], [0, 1, 1, 1]);
+  });
+  const imageScale = useTransform(mediaProgress, [0, 1], [1.12, 1.02]);
+  const imageX = useTransform(mediaProgress, [0, .5, 1], ["-1.5%", "0%", "1.5%"]);
+  const imageY = useTransform(mediaProgress, [0, 1], ["-1%", "1%"]);
+  const signalX = useTransform(mediaProgress, [0, 1], ["-8%", "108%"]);
+  const titleY = useTransform(mediaProgress, [0, .18, .36, .58, .76, 1], [40, 0, -20, 30, 0, -20]);
+
+  return (
+    <section ref={sectionRef} className="relative h-[320vh] border-y border-white/10 bg-[#040708]">
+      <div className="sticky top-0 flex h-[100svh] items-center overflow-hidden">
+        <div className="absolute inset-0 bg-[#040708]" />
+        {scenes.map((scene, index) => (
+          <motion.img
+            key={scene.src}
+            src={scene.src}
+            alt={scene.alt}
+            loading={index === 0 ? "eager" : "lazy"}
+            className="absolute inset-0 h-full w-full object-cover"
+            style={{
+              opacity: opacities[index],
+              scale: imageScale,
+              x: imageX,
+              y: imageY,
+            }}
+          />
+        ))}
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(3,7,9,.92)_0%,rgba(3,7,9,.60)_38%,rgba(3,7,9,.20)_72%,rgba(3,7,9,.55)_100%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(3,7,9,.40)_0%,transparent_35%,rgba(3,7,9,.82)_100%)]" />
+        <div className="absolute inset-0 usalb-hero-grid opacity-25" />
+
+        <div className="relative z-10 mx-auto w-full max-w-[1500px] px-5 sm:px-8">
+          <motion.div style={{ y: titleY }} className="max-w-2xl">
+            <div className="eyebrow mb-5 flex items-center gap-3 text-[#ffcc33]">
+              <span className="h-px w-10 bg-[#ffcc33]" />
+              REAL MEDIA · SCROLL JOURNEY
+            </div>
+            {scenes.map((scene, index) => (
+              <motion.div
+                key={scene.title}
+                className="absolute max-w-2xl"
+                style={{ opacity: opacities[index] }}
+              >
+                <p className="eyebrow text-white/60">{scene.kicker}</p>
+                <h2 className="mt-4 font-display text-[clamp(3rem,7vw,7.5rem)] font-semibold leading-[.86] tracking-[-.065em] text-white">
+                  {scene.title}
+                </h2>
+                <p className="mt-7 max-w-xl text-base leading-7 text-white/70 sm:text-xl sm:leading-8">
+                  {scene.copy}
+                </p>
+                <p className="mt-7 text-[10px] font-mono uppercase tracking-[.16em] text-white/35">{scene.credit}</p>
+              </motion.div>
+            ))}
+          </motion.div>
+
+          <div className="absolute bottom-10 left-5 right-5 sm:left-8 sm:right-8">
+            <div className="relative h-px overflow-hidden bg-white/20">
+              <motion.div className="absolute inset-y-0 w-24 bg-gradient-to-r from-transparent via-[#ffcc33] to-transparent shadow-[0_0_25px_#ffcc33]" style={{ x: signalX }} />
+            </div>
+            <div className="mt-3 flex items-center justify-between text-[9px] font-mono uppercase tracking-[.18em] text-white/45">
+              <span>USA</span><span>LIVE SIGNAL</span><span>ALBANIA</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="absolute right-5 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-3 sm:flex">
+          {scenes.map((scene, index) => (
+            <motion.span
+              key={scene.kicker}
+              className="h-12 w-px origin-top bg-white/20"
+              style={{ scaleY: opacities[index] }}
+            />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Home() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const heroRef = useRef<HTMLElement>(null);
@@ -456,6 +572,8 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      <CinematicMediaJourney />
 
       <section className="relative overflow-hidden border-y border-white/10 bg-[#071014] px-5 py-28 sm:px-8 sm:py-40">
         <div className="mx-auto max-w-[1500px]">
