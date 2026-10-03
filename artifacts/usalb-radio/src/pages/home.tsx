@@ -68,6 +68,10 @@ export default function Home() {
   const heroY = useTransform(smoothProgress, [0, .28], [0, -100]);
   const globeRotate = useTransform(smoothProgress, [0, 1], [0, 210]);
   const bridgeX = useTransform(smoothProgress, [0, .45], ["-4%", "12%"]);
+  const cinematicY = useTransform(smoothProgress, [.28, .52, .76], [90, 0, -90]);
+  const cinematicRotate = useTransform(smoothProgress, [.28, .52, .76], [-5, 0, 5]);
+  const cinematicScale = useTransform(smoothProgress, [.28, .52, .76], [.86, 1, .88]);
+  const journeyX = useTransform(smoothProgress, [.52, .82], ["0%", "-42%"]);
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = muted ? 0 : volume;
@@ -419,6 +423,75 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      <section className="relative min-h-[125vh] overflow-hidden bg-[#040708] px-5 py-32 sm:px-8 sm:py-44">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(200,16,46,.16),transparent_24%),radial-gradient(circle_at_15%_70%,rgba(40,75,130,.14),transparent_30%)]" />
+        <div className="absolute inset-0 usalb-hero-grid opacity-30" />
+        <div className="relative mx-auto max-w-[1500px]">
+          <div className="flex items-end justify-between gap-8">
+            <div>
+              <p className="eyebrow text-[#ffcc33]">Scroll the signal</p>
+              <h2 className="mt-5 max-w-4xl font-display text-5xl font-semibold leading-[.88] tracking-[-.06em] text-white sm:text-8xl">America on one side.<br /><span className="text-[#c8102e]">Albania on the other.</span></h2>
+            </div>
+            <span className="hidden max-w-xs text-right text-xs uppercase tracking-[.16em] text-white/35 md:block">A cinematic radio journey built around the USALB identity.</span>
+          </div>
+          <div className="relative mt-20 flex min-h-[720px] items-center justify-center [perspective:1400px]">
+            <motion.div style={{ y: cinematicY, rotateX: cinematicRotate, scale: cinematicScale }} className="relative h-[min(68vw,650px)] w-[min(88vw,1050px)] [transform-style:preserve-3d]">
+              <div className="absolute inset-0 rounded-[2.5rem] border border-white/10 bg-[radial-gradient(circle_at_22%_35%,rgba(255,255,255,.14),transparent_16%),radial-gradient(circle_at_78%_55%,rgba(200,16,46,.22),transparent_25%),linear-gradient(120deg,#101b22,#06090b_55%,#180b10)] shadow-[0_50px_150px_rgba(0,0,0,.65)]" />
+              <div className="absolute inset-[5%] overflow-hidden rounded-[2rem] border border-white/10 bg-black/25 backdrop-blur-sm">
+                <div className="absolute -left-[10%] top-[18%] h-56 w-[65%] rounded-full border border-white/10 [transform:rotateY(28deg)]" />
+                <div className="absolute -right-[8%] bottom-[12%] h-72 w-[58%] rounded-full border border-[#c8102e]/20 [transform:rotateY(-28deg)]" />
+                <div className="absolute left-[8%] top-[12%] text-[clamp(2rem,5vw,5rem)] font-black tracking-[-.08em] text-white/10">USA</div>
+                <div className="absolute right-[8%] bottom-[12%] text-[clamp(2rem,5vw,5rem)] font-black tracking-[-.08em] text-[#c8102e]/20">ALB</div>
+                <motion.div className="absolute left-[13%] top-1/2 h-px w-[74%] bg-gradient-to-r from-white/10 via-[#ffcc33] to-[#c8102e]" animate={{ opacity:[.25,1,.25] }} transition={{ duration:2.6, repeat:Infinity }} />
+                <motion.div className="absolute left-[18%] top-[calc(50%-4px)] h-2 w-2 rounded-full bg-[#ffcc33] shadow-[0_0_28px_#ffcc33]" animate={{ x:["0%","470%","0%"], y:["0%","-45%","0%"] }} transition={{ duration:5, repeat:Infinity, ease:"easeInOut" }} />
+                <div className="absolute inset-x-8 bottom-8 flex items-center justify-between rounded-2xl border border-white/10 bg-black/35 p-4 backdrop-blur-xl">
+                  <span className="eyebrow text-white/45">USA ↔ ALBANIA</span>
+                  <span className="flex items-center gap-2 text-xs font-bold text-[#ffcc33]"><span className="h-2 w-2 animate-pulse rounded-full bg-[#c8102e]" /> SIGNAL MOVING</span>
+                </div>
+              </div>
+              <div className="absolute -left-8 top-1/2 h-40 w-20 -translate-y-1/2 rounded-full border border-white/5 bg-white/[.02] blur-[1px] [transform:translateZ(-80px)_rotateY(45deg)]" />
+              <div className="absolute -right-8 top-1/2 h-40 w-20 -translate-y-1/2 rounded-full border border-[#c8102e]/10 bg-[#c8102e]/5 [transform:translateZ(-80px)_rotateY(-45deg)]" />
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      <section className="relative overflow-hidden border-y border-white/10 bg-[#071014] px-5 py-28 sm:px-8 sm:py-40">
+        <div className="mx-auto max-w-[1500px]">
+          <p className="eyebrow text-[#c8102e]">The USALB journey</p>
+          <div className="mt-5 overflow-hidden">
+            <motion.div style={{ x: journeyX }} className="flex w-max gap-5">
+              {[
+                ["01","NEW YORK","The energy of the American city."],
+                ["02","ATLANTIC","The signal crosses the distance."],
+                ["03","ALBANIA","The culture, language and home."],
+                ["04","USALB RADIO","One station connects them."],
+              ].map(([n,title,text]) => (
+                <article key={n} className="flex h-72 w-[78vw] max-w-[470px] flex-col justify-between rounded-[2rem] border border-white/10 bg-white/[.025] p-7 sm:w-[470px]">
+                  <span className="font-mono text-xs text-[#ffcc33]">{n}</span>
+                  <div><h3 className="font-display text-4xl font-semibold tracking-tight text-white">{title}</h3><p className="mt-3 max-w-sm text-sm leading-6 text-white/40">{text}</p></div>
+                </article>
+              ))}
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+        <div className="pointer-events-auto flex w-full max-w-3xl items-center gap-3 rounded-[1.35rem] border border-white/10 bg-[#071014]/90 p-2 shadow-[0_20px_70px_rgba(0,0,0,.5)] backdrop-blur-2xl">
+          <img src={logoSrc} alt="" className="h-12 w-12 rounded-xl object-contain bg-black/20 p-1" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#c8102e]" /><span className="eyebrow text-white/40">{isLive ? "LIVE NOW" : "USALB RADIO"}</span></div>
+            <p className="truncate text-sm font-bold text-white">{config.showName}</p>
+          </div>
+          <div className="hidden items-center gap-2 sm:flex"><SignalBars active={playing} /></div>
+          <button onClick={() => void toggle()} disabled={loading} className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition", playing ? "bg-[#ffcc33] text-black" : "bg-[#c8102e] text-white")} aria-label={playing ? "Pause radio" : "Play radio"}>
+            {loading ? <LoaderCircle className="h-5 w-5 animate-spin" /> : playing ? <Pause className="h-5 w-5 fill-current" /> : <Play className="h-5 w-5 fill-current" />}
+          </button>
+          <input aria-label="Player volume" type="range" min="0" max="1" step=".01" value={muted ? 0 : volume} onChange={(e) => { setVolume(Number(e.target.value)); setMuted(false); }} className="hidden w-24 accent-[#c8102e] md:block" />
+        </div>
+      </div>
 
       <footer className="border-t border-white/10 bg-[#040708] px-5 py-10 sm:px-8">
         <div className="mx-auto flex max-w-[1500px] flex-col gap-5 text-xs text-white/35 sm:flex-row sm:items-center sm:justify-between">
