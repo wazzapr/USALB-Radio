@@ -64,11 +64,10 @@ function CinematicMediaJourney() {
     },
   ];
 
-  const opacities = scenes.map((_, index) => {
-    if (index === 0) return useTransform(mediaProgress, [0, .08, .30, .40], [1, 1, 1, 0]);
-    if (index === 1) return useTransform(mediaProgress, [.30, .42, .58, .70], [0, 1, 1, 0]);
-    return useTransform(mediaProgress, [.58, .70, .94, 1], [0, 1, 1, 1]);
-  });
+  const usaOpacity = useTransform(mediaProgress, [0, .08, .30, .40], [1, 1, 1, 0]);
+  const bridgeOpacity = useTransform(mediaProgress, [.30, .42, .58, .70], [0, 1, 1, 0]);
+  const albaniaOpacity = useTransform(mediaProgress, [.58, .70, .94, 1], [0, 1, 1, 1]);
+  const opacities = [usaOpacity, bridgeOpacity, albaniaOpacity];
   const imageScale = useTransform(mediaProgress, [0, 1], [1.12, 1.02]);
   const imageX = useTransform(mediaProgress, [0, .5, 1], ["-1.5%", "0%", "1.5%"]);
   const imageY = useTransform(mediaProgress, [0, 1], ["-1%", "1%"]);
