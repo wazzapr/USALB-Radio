@@ -613,7 +613,25 @@ export default function Home() {
 
       <CinematicMediaJourney />
 
-      <section className="relative overflow-hidden bg-[#030607] px-5 py-28 sm:px-8 sm:py-40">
+      <section className="relative -mt-[18vh] overflow-hidden bg-[#030607] px-5 pb-28 pt-[18vh] sm:px-8 sm:pb-40">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-transparent via-[#030607]/70 to-[#030607]" />
+        <div className="mx-auto grid max-w-[1500px] items-center gap-12 lg:grid-cols-[.8fr_1.2fr]">
+          <div className="relative z-10">
+            <div className="eyebrow flex items-center gap-3 text-[#ffcc33]"><span className="h-px w-10 bg-[#ffcc33]" /> THE CONNECTION</div>
+            <h2 className="mt-5 max-w-xl font-display text-[clamp(3rem,6vw,6.5rem)] font-semibold leading-[.88] tracking-[-.06em] text-white">
+              One signal.<br/><span className="text-white/45">Two homes.</span>
+            </h2>
+            <p className="mt-7 max-w-lg text-base leading-7 text-white/60 sm:text-lg">
+              A living connection between the United States and Albania — designed into the heart of USALB RADIO.
+            </p>
+            <div className="mt-10 grid max-w-md grid-cols-2 gap-3">
+              <div className="glass rounded-2xl p-5"><div className="font-mono text-[10px] uppercase tracking-[.18em] text-white/35">Origin</div><div className="mt-2 font-display text-xl text-white">United States</div></div>
+              <div className="glass rounded-2xl p-5"><div className="font-mono text-[10px] uppercase tracking-[.18em] text-white/35">Destination</div><div className="mt-2 font-display text-xl text-white">Albania</div></div>
+            </div>
+          </div>
+          <USAAlbaniaGlobe progress={smoothProgress} />
+        </div>
+      </section>
         <div className="mx-auto grid max-w-[1500px] items-center gap-12 lg:grid-cols-[.8fr_1.2fr]">
           <div className="relative z-10">
             <div className="eyebrow flex items-center gap-3 text-[#ffcc33]"><span className="h-px w-10 bg-[#ffcc33]" /> USA ↔ ALBANIA</div>
