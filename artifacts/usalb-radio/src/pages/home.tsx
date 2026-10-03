@@ -20,6 +20,101 @@ const fallback = {
   isLive: false
 };
 
+type SiteLanguage = "sq" | "en";
+
+type NewsItem = {
+  id: number;
+  date: string;
+  link: string;
+  title: string;
+  excerpt: string;
+  image?: string;
+};
+
+function NewsFeed({ language }: { language: SiteLanguage }) {
+  const [items, setItems] = useState<NewsItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setNewsLoading(true);
+      try {
+        const response = await fetch("https://public-api.wordpress.com/rest/v1.1/sites/usalbtv.com/posts/?number=6&fields=ID,date,URL,title,excerpt,featured_image");
+        if (!response.ok) throw new Error("News feed unavailable");
+        const data = await response.json();
+        const posts = Array.isArray(data?.posts) ? data.posts : [];
+        if (!cancelled) {
+          setItems(posts.map((post: any) => ({
+            id: Number(post.ID),
+            date: post.date,
+            link: post.URL,
+            title: String(post.title || "").replace(/<[^>]+>/g, ""),
+            excerpt: String(post.excerpt || "").replace(/<[^>]+>/g, "").trim(),
+            image: post.featured_image || undefined,
+          })));
+        }
+      } catch {
+        if (!cancelled) setItems([]);
+      } finally {
+        if (!cancelled) setNewsLoading(false);
+      }
+    };
+    void load();
+    const timer = window.setInterval(load, 5 * 60 * 1000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, []);
+
+  return (
+    <section id="news" className="relative overflow-hidden border-y border-white/10 bg-[#060b0d] px-5 py-28 sm:px-8 sm:py-40">
+      <div className="absolute inset-0 usalb-map-grid opacity-20" />
+      <div className="relative mx-auto max-w-[1500px]">
+        <div className="flex flex-col justify-between gap-7 md:flex-row md:items-end">
+          <div>
+            <div className="eyebrow flex items-center gap-3 text-[#ffcc33]"><span className="h-px w-10 bg-[#ffcc33]" /> {language === "sq" ? "USALB NEWS" : "USALB NEWS"}</div>
+            <h2 className="mt-5 max-w-3xl font-display text-[clamp(3rem,6vw,6.5rem)] font-semibold leading-[.88] tracking-[-.06em] text-white">
+              {language === "sq" ? "Lajmet e fundit." : "Latest news."}
+            </h2>
+            <p className="mt-6 max-w-2xl text-base leading-7 text-white/55 sm:text-lg">
+              {language === "sq" ? "Të rejat më të fundit nga redaksia e USALB." : "The latest stories from the USALB newsroom."}
+            </p>
+          </div>
+          <a href="https://usalbtv.com" target="_blank" rel="noreferrer" className="text-xs font-bold uppercase tracking-[.18em] text-[#ffcc33] transition hover:text-white">
+            {language === "sq" ? "Shiko të gjitha →" : "View all →"}
+          </a>
+        </div>
+
+        {newsLoading && (
+          <div className="mt-12 h-64 animate-pulse rounded-[2rem] border border-white/10 bg-white/[.03]" />
+        )}
+
+        {!newsLoading && items.length > 0 && (
+          <div className="mt-12 grid gap-5 lg:grid-cols-12">
+            {items.map((item, index) => (
+              <a key={item.id} href={item.link} target="_blank" rel="noreferrer"
+                className={cn("group relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-white/[.035] transition duration-500 hover:-translate-y-1 hover:border-[#ffcc33]/30", index === 0 ? "lg:col-span-7 lg:row-span-2" : "lg:col-span-5")}>
+                {item.image && <img src={item.image} alt="" loading={index === 0 ? "eager" : "lazy"} className={cn("absolute inset-0 h-full w-full object-cover opacity-45 transition duration-700 group-hover:scale-105 group-hover:opacity-60", index === 0 ? "min-h-[430px]" : "min-h-[210px]")} />}
+                <div className="relative flex min-h-[210px] flex-col justify-end bg-gradient-to-t from-[#030607] via-[#030607]/75 to-transparent p-6 sm:p-8">
+                  <div className="font-mono text-[9px] uppercase tracking-[.18em] text-[#ffcc33]">{new Date(item.date).toLocaleDateString(language === "sq" ? "sq-AL" : "en-US")}</div>
+                  <h3 className="mt-2 font-display text-2xl font-semibold leading-tight text-white sm:text-3xl">{item.title}</h3>
+                  {item.excerpt && <p className="mt-3 line-clamp-2 max-w-2xl text-sm leading-6 text-white/55">{item.excerpt}</p>}
+                  <span className="mt-5 text-[10px] font-bold uppercase tracking-[.16em] text-white/45 group-hover:text-[#ffcc33]">{language === "sq" ? "Lexo lajmin →" : "Read article →"}</span>
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
+
+        {!newsLoading && items.length === 0 && (
+          <div className="mt-12 rounded-3xl border border-white/10 bg-white/[.03] p-8 text-sm text-white/45">
+            {language === "sq" ? "Lajmet do të shfaqen këtu sapo burimi i USALB TV të jetë i disponueshëm." : "News will appear here when the USALB TV feed is available."}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function SignalBars({ active }: { active: boolean }) {
   return (
     <div className="flex h-7 items-end gap-1.5" aria-label={active ? "Audio is playing" : "Audio is paused"}>
@@ -196,6 +291,14 @@ export default function Home() {
   const [reconnecting, setReconnecting] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [language, setLanguage] = useState<SiteLanguage>(() => {
+    const saved = window.localStorage.getItem("usalb-language");
+    return saved === "en" ? "en" : "sq";
+  });
+
+  useEffect(() => {
+    window.localStorage.setItem("usalb-language", language);
+  }, [language]);
 
   const stationQuery = useGetStation({ query: { queryKey: getGetStationQueryKey(), refetchInterval: 10000 } });
   const statusQuery = useGetStreamStatus({ query: { queryKey: getGetStreamStatusQueryKey(), refetchInterval: 5000 } });
@@ -408,9 +511,14 @@ export default function Home() {
           <motion.img whileHover={{ rotate: -5, scale: 1.05 }} src={logoSrc} alt="USALB RADIO" className="h-12 w-12 object-contain drop-shadow-[0_0_28px_rgba(224,89,71,.25)] sm:h-14 sm:w-14" data-testid="img-station-logo" />
           <span className="font-display text-lg font-bold tracking-tight text-white">USALB <span className="text-primary">RADIO</span></span>
         </Link>
-        <nav className="flex items-center gap-3">
-          <span className="hidden eyebrow text-white/45 sm:inline">USA ↔ ALBANIA · LIVE</span>
-          {installPrompt && <button onClick={() => void installApp()} className="hidden items-center gap-2 rounded-full border border-[#ffcc33]/30 bg-[#ffcc33]/10 px-4 py-2 text-xs font-bold text-[#ffcc33] transition hover:bg-[#ffcc33]/20 sm:flex"><Download className="h-3.5 w-3.5" /> Install app</button>}
+        <nav className="flex items-center gap-2 sm:gap-3">
+          <a href="#news" className="hidden text-[10px] font-bold uppercase tracking-[.16em] text-white/55 transition hover:text-white sm:inline">{language === "sq" ? "Lajme" : "News"}</a>
+          <span className="hidden eyebrow text-white/45 md:inline">USA ↔ ALBANIA · LIVE</span>
+          <div className="flex items-center rounded-full border border-white/10 bg-black/30 p-1 backdrop-blur-md" aria-label="Language">
+            <button onClick={() => setLanguage("sq")} className={cn("rounded-full px-3 py-1.5 text-[10px] font-bold transition", language === "sq" ? "bg-[#ffcc33] text-black" : "text-white/55 hover:text-white")}>SQ</button>
+            <button onClick={() => setLanguage("en")} className={cn("rounded-full px-3 py-1.5 text-[10px] font-bold transition", language === "en" ? "bg-[#c8102e] text-white" : "text-white/55 hover:text-white")}>EN</button>
+          </div>
+          {installPrompt && <button onClick={() => void installApp()} className="hidden items-center gap-2 rounded-full border border-[#ffcc33]/30 bg-[#ffcc33]/10 px-4 py-2 text-xs font-bold text-[#ffcc33] transition hover:bg-[#ffcc33]/20 sm:flex"><Download className="h-3.5 w-3.5" /> {language === "sq" ? "Instalo" : "Install app"}</button>}
         </nav>
       </header>
 
@@ -448,18 +556,18 @@ export default function Home() {
 
         <motion.div className="relative z-10 mx-auto grid w-full max-w-[1500px] gap-12 lg:grid-cols-[1.05fr_.95fr] lg:items-center" style={{ scale: heroScale, y: heroY }}>
           <div className="max-w-4xl">
-            <div className="eyebrow mb-6 flex items-center gap-3 text-[#ffcc33]"><span className="h-px w-8 bg-[#ffcc33]" /> USA ↔ ALBANIA · LIVE RADIO</div>
+            <div className="eyebrow mb-6 flex items-center gap-3 text-[#ffcc33]"><span className="h-px w-8 bg-[#ffcc33]" /> {language === "sq" ? "SHQIP · RADIO LIVE" : "USA ↔ ALBANIA · LIVE RADIO"}</div>
             <h1 className="font-display text-[clamp(4rem,10vw,9rem)] font-semibold leading-[.82] tracking-[-.075em] text-white">
               <span className="block">USALB</span>
               <span className="block bg-gradient-to-r from-white via-white to-white/45 bg-clip-text text-transparent">RADIO.</span>
             </h1>
             <p className="mt-8 max-w-2xl text-base leading-7 text-white/60 sm:text-xl sm:leading-8">
-              From the energy of the <span className="text-white">USA</span> to the heart of <span className="text-[#ffcc33]">Albania</span>. One live signal connecting the diaspora, wherever you are.
+              {language === "sq" ? <>Nga energjia e <span className="text-white">SHBA-së</span> te zemra e <span className="text-[#ffcc33]">Shqipërisë</span>. Një sinjal live që lidh diasporën, kudo që ndodheni.</> : <>From the energy of the <span className="text-white">USA</span> to the heart of <span className="text-[#ffcc33]">Albania</span>. One live signal connecting the diaspora, wherever you are.</>}
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-4">
               <button onClick={() => void toggle()} disabled={loading} className={cn("group flex items-center gap-3 rounded-full px-7 py-4 text-sm font-extrabold shadow-2xl transition hover:-translate-y-1 disabled:cursor-wait disabled:opacity-60", playing ? "bg-[#ffcc33] text-black" : "bg-[#c8102e] text-white")} data-testid="button-toggle-player">
                 {loading ? <LoaderCircle className="h-5 w-5 animate-spin" /> : playing ? <Pause className="h-5 w-5 fill-current" /> : <Play className="h-5 w-5 fill-current" />}
-                {loading ? "Connecting" : playing ? "Pause broadcast" : "Listen live"}
+                {loading ? (language === "sq" ? "Duke u lidhur" : "Connecting") : playing ? (language === "sq" ? "Ndalo transmetimin" : "Pause broadcast") : (language === "sq" ? "Dëgjo live" : "Listen live")}
               </button>
               <div className="relative">
                 <button onClick={() => setShareOpen((open) => !open)} className="flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-5 py-4 text-sm font-bold text-white backdrop-blur-md transition hover:border-white/30 hover:bg-white/10"><Share2 className="h-4 w-4" /> Share</button>
@@ -476,8 +584,8 @@ export default function Home() {
             </div>
             {error && <p className="mt-4 flex items-center gap-2 text-sm text-[#ffcc33]"><WifiOff className="h-4 w-4" />{error}</p>}
             <div className="mt-12 flex flex-wrap gap-8 text-[10px] font-bold uppercase tracking-[.22em] text-white/40">
-              <span className="flex items-center gap-2"><RadioTower className="h-4 w-4 text-[#c8102e]" /> Live from Albania</span>
-              <span className="flex items-center gap-2"><Globe2 className="h-4 w-4 text-[#ffcc33]" /> Heard in the USA</span>
+              <span className="flex items-center gap-2"><RadioTower className="h-4 w-4 text-[#c8102e]" /> {language === "sq" ? "Live nga Shqipëria" : "Live from Albania"}</span>
+              <span className="flex items-center gap-2"><Globe2 className="h-4 w-4 text-[#ffcc33]" /> {language === "sq" ? "Dëgjohet në SHBA" : "Heard in the USA"}</span>
             </div>
           </div>
 
@@ -524,6 +632,8 @@ export default function Home() {
           <ArrowDown className="h-5 w-5" />
         </motion.div>
       </section>
+
+      <NewsFeed language={language} />
 
       <section className="relative overflow-hidden border-y border-white/10 bg-[#070d10] px-5 py-28 sm:px-8 sm:py-40">
         <div className="mx-auto max-w-[1500px]">
