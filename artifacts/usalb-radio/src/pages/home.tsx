@@ -417,7 +417,15 @@ export default function Home() {
       const audio = audioRef.current;
       if (!audio) throw new Error("The radio player is not ready yet.");
 
-      const streamUrl = status?.streamUrl || station?.streamUrl || "/api/radio-stream";
+      // Public playback must use the configured Listen2MyRadio/Centova
+      // audio endpoint, never the separate internal USALB relay.
+      const streamUrl = (status?.streamUrl || station?.streamUrl || "").trim();
+      if (!streamUrl) {
+        shouldReconnectRef.current = false;
+        throw new Error(language === "al"
+          ? "Transmetimi publik nuk është konfiguruar ende."
+          : "The public Listen2MyRadio stream URL has not been configured yet.");
+      }
       const separator = streamUrl.includes("?") ? "&" : "?";
       audio.src = `${streamUrl}${separator}app-live=${Date.now()}`;
       audio.preload = "none";
@@ -449,11 +457,20 @@ export default function Home() {
       setReconnecting(false);
       reconnectAttemptRef.current = 0;
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
-    } catch {
+    } catch (cause) {
       setLoading(false);
       setPlaying(false);
-      if (shouldReconnectRef.current) scheduleReconnect();
-      else setError("Tap the play button again to connect to the live source.");
+      const message = cause instanceof Error ? cause.message : "";
+      if (message.includes("not been configured") || message.includes("nuk është konfiguruar")) {
+        shouldReconnectRef.current = false;
+        setError(message);
+      } else if (shouldReconnectRef.current) {
+        scheduleReconnect();
+      } else {
+        setError(message || (language === "al"
+          ? "Shtyp përsëri PLAY për t'u lidhur me transmetimin."
+          : "Tap PLAY again to connect to the live stream."));
+      }
     }
   };
 
