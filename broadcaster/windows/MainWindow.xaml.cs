@@ -45,6 +45,12 @@ public partial class MainWindow : Window
     volatile float bassGainDb;
     volatile float midGainDb;
     volatile float trebleGainDb;
+    volatile float micBassGainDb;
+    volatile float micMidGainDb;
+    volatile float micTrebleGainDb;
+    volatile bool micDuckingEnabled = true;
+    volatile float duckingThresholdDb = -42;
+    volatile float duckingReductionDb = 12;
     volatile bool limiterEnabled = true;
     int stopping;
     bool IsClosing { get; set; }
@@ -80,6 +86,13 @@ public partial class MainWindow : Window
         BassGain.ValueChanged += (_, _) => bassGainDb = (float)BassGain.Value;
         MidGain.ValueChanged += (_, _) => midGainDb = (float)MidGain.Value;
         TrebleGain.ValueChanged += (_, _) => trebleGainDb = (float)TrebleGain.Value;
+        MicBassGain.ValueChanged += (_, _) => micBassGainDb = (float)MicBassGain.Value;
+        MicMidGain.ValueChanged += (_, _) => micMidGainDb = (float)MicMidGain.Value;
+        MicTrebleGain.ValueChanged += (_, _) => micTrebleGainDb = (float)MicTrebleGain.Value;
+        DuckingBox.Checked += (_, _) => micDuckingEnabled = true;
+        DuckingBox.Unchecked += (_, _) => micDuckingEnabled = false;
+        DuckingThreshold.ValueChanged += (_, _) => duckingThresholdDb = (float)DuckingThreshold.Value;
+        DuckingReduction.ValueChanged += (_, _) => duckingReductionDb = (float)DuckingReduction.Value;
         LimiterBox.Checked += (_, _) => limiterEnabled = true;
         LimiterBox.Unchecked += (_, _) => limiterEnabled = false;
         Closed += (_, _) => http.Dispose();
@@ -562,6 +575,8 @@ public partial class MainWindow : Window
         var mic = new float[frameSamples];
         BiQuadFilter[]? musicEqL = null, musicEqR = null, micEqL = null, micEqR = null;
         float lastBass = float.NaN, lastMid = float.NaN, lastTreble = float.NaN;
+        float lastMicBass = float.NaN, lastMicMid = float.NaN, lastMicTreble = float.NaN;
+        float duckingEnvelope = 0f;
         Task<PcmWebSocketConnection>? rotationTask = null;
         PcmWebSocketConnection? rotationCandidate = null;
         Task? handoffCommitTask = null;
@@ -579,22 +594,42 @@ public partial class MainWindow : Window
                 Array.Clear(music); Array.Clear(mic);
                 musicSamples?.Read(music, 0, music.Length);
                 micSamples?.Read(mic, 0, mic.Length);
-                var currentMusicGain = musicGainPercent / 100.0;
                 var currentMicGain = micGainPercent / 100.0;
                 var currentMasterGain = masterGainPercent / 100.0;
                 var bass = bassGainDb;
                 var mid = midGainDb;
                 var treble = trebleGainDb;
+                var micBass = micBassGainDb;
+                var micMid = micMidGainDb;
+                var micTreble = micTrebleGainDb;
+
+                // Voice-activity ducking uses the microphone frame RMS. A smoothed
+                // envelope gives fast attack and gentle release without abrupt pumping.
+                double micSquareSum = 0;
+                for (var sampleIndex = 0; sampleIndex < mic.Length; sampleIndex++)
+                    micSquareSum += mic[sampleIndex] * mic[sampleIndex];
+                var micRms = Math.Sqrt(micSquareSum / Math.Max(1, mic.Length));
+                var micLevelDb = micRms > 0.000001 ? 20.0 * Math.Log10(micRms) : -120.0;
+                var duckingTarget = micDuckingEnabled && micLevelDb >= duckingThresholdDb ? 1f : 0f;
+                duckingEnvelope += (duckingTarget - duckingEnvelope) * (duckingTarget > duckingEnvelope ? 0.35f : 0.035f);
+                var duckingGain = Math.Pow(10.0, -(duckingReductionDb * duckingEnvelope) / 20.0);
+                var currentMusicGain = (musicGainPercent / 100.0) * duckingGain;
 
                 if (musicEqL is null || bass != lastBass || mid != lastMid || treble != lastTreble)
                 {
                     musicEqL = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, treble)];
                     musicEqR = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, treble)];
-                    micEqL = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, treble)];
-                    micEqR = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, bass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, mid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, treble)];
                     lastBass = bass;
                     lastMid = mid;
                     lastTreble = treble;
+                }
+                if (micEqL is null || micBass != lastMicBass || micMid != lastMicMid || micTreble != lastMicTreble)
+                {
+                    micEqL = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, micBass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, micMid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, micTreble)];
+                    micEqR = [BiQuadFilter.PeakingEQ(SampleRate, 100, 0.7f, micBass), BiQuadFilter.PeakingEQ(SampleRate, 1000, 0.8f, micMid), BiQuadFilter.PeakingEQ(SampleRate, 8000, 0.7f, micTreble)];
+                    lastMicBass = micBass;
+                    lastMicMid = micMid;
+                    lastMicTreble = micTreble;
                 }
 
                 for (var i = 0; i < frameSamples; i += 2)
