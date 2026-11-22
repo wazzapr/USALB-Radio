@@ -124,7 +124,9 @@ router.get("/stream-status", async (_req, res): Promise<void> => {
     state,
     isLive,
     broadcasterConnected,
-    listenerCount: getListenerCount() + stream.listenerCount,
+    // Count actual MP3 stream connections in the Control Room. The separate
+    // /listeners endpoint remains available for the site's WebSocket presence count.
+    listenerCount: stream.listenerCount,
     uptimeSeconds: stream.startedAt ? Math.max(0, Math.floor((Date.now() - stream.startedAt.getTime()) / 1000)) : 0,
     lastHeartbeat: heartbeat.receivedAt.getTime() > 0 ? heartbeat.receivedAt : null,
     streamUrl,
