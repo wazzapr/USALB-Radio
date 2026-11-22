@@ -21,7 +21,7 @@ export async function fetchStreamTarget(): Promise<RadioStreamTarget> {
     signal: AbortSignal.timeout(8000),
   });
 
-  if (!res.ok) throw new Error(\`Radio page returned \${res.status}\`);
+  if (!res.ok) throw new Error("Radio page returned " + res.status);
   const html = await res.text();
 
   // Listen2MyRadio publishes the current rotating MP3 mount in its page source.
@@ -39,7 +39,7 @@ export async function fetchStreamTarget(): Promise<RadioStreamTarget> {
 export async function wakeRadioStation(cookie?: string): Promise<void> {
   // Mirror the provider's official listener-confirmation request.
   const response = await fetch(
-    new URL(\`openfire.ajax.php?radio_id=\${RADIO_ID}\`, RADIO_PAGE),
+    new URL("openfire.ajax.php?radio_id=" + RADIO_ID, RADIO_PAGE),
     {
       method: "POST",
       headers: {
@@ -55,7 +55,7 @@ export async function wakeRadioStation(cookie?: string): Promise<void> {
   );
 
   await response.arrayBuffer();
-  if (!response.ok) throw new Error(\`Radio warm-up returned \${response.status}\`);
+  if (!response.ok) throw new Error("Radio warm-up returned " + response.status);
 }
 
 export async function openFreshRadioAudio(): Promise<{
