@@ -110,15 +110,15 @@ router.get("/stream-status", async (_req, res): Promise<void> => {
   const stream = getLiveSnapshot();
   const broadcasterConnected = heartbeat.connected || stream.connected;
   const isLive = stream.streaming;
-  const state = !streamUrl
-    ? "OFFLINE"
-    : isLive
-      ? "LIVE"
-      : heartbeat.status === "RECONNECTING"
-        ? "RECONNECTING"
-        : broadcasterConnected
-          ? "CONNECTING"
-          : "OFFLINE";
+  // Control Room reports the broadcaster/relay state independently of the
+  // public player's configured source URL (which may be Listen2MyRadio).
+  const state = isLive
+    ? "LIVE"
+    : heartbeat.status === "RECONNECTING"
+      ? "RECONNECTING"
+      : broadcasterConnected
+        ? "CONNECTING"
+        : "OFFLINE";
 
   res.json(GetStreamStatusResponse.parse({
     state,
