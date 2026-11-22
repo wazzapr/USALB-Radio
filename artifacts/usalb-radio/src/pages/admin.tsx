@@ -6,7 +6,6 @@ import {
   getGetAdminDiagnosticsQueryKey,
   getGetBroadcasterConnectionQueryKey,
   getGetChatQueryKey,
-  getGetListenersQueryKey,
   getGetNowPlayingQueryKey,
   getGetStationQueryKey,
   getGetStreamStatusQueryKey,
@@ -14,7 +13,6 @@ import {
   useGetAdminDiagnostics,
   useGetBroadcasterConnection,
   useGetChat,
-  useGetListeners,
   useGetNowPlaying,
   useGetStation,
   useGetStreamStatus,
@@ -31,10 +29,10 @@ function Field({ label, value, onChange, placeholder, type = 'text', testId }: {
   return <label className="block text-sm font-semibold">{label}<input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className={inputClass} data-testid={testId} /></label>;
 }
 
-function SignalCard({ status, listeners }: { status?: StreamStatus; listeners?: number }) {
+function SignalCard({ status }: { status?: StreamStatus }) {
   const state = status?.state ?? 'OFFLINE';
   const heartbeat = formatAgo(status?.lastHeartbeat);
-  return <section className="rounded-3xl border border-border bg-card p-5 sm:p-6" data-testid="card-signal-status"><SectionLabel right={heartbeat}>Signal telemetry</SectionLabel><div className="flex flex-wrap items-end justify-between gap-4"><div><StatusBadge status={status} /><p className="mt-4 text-3xl font-bold tracking-tight">{state === 'LIVE' ? 'Broadcasting' : state === 'CONNECTING' ? 'Waiting for source' : state === 'RECONNECTING' ? 'Finding source' : 'Off air'}</p><p className="mt-1 text-sm text-muted-foreground">{status?.broadcasterConnected ? 'Broadcaster connected' : 'No broadcaster connection'}</p></div><div className="grid grid-cols-2 gap-3 text-right"><div><p className="font-mono text-2xl text-primary">{listeners ?? status?.listenerCount ?? '—'}</p><p className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">listeners</p></div><div><p className="font-mono text-2xl text-secondary">{formatDuration(status?.uptimeSeconds)}</p><p className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">uptime</p></div></div></div><div className="mt-6 grid grid-cols-3 gap-2 border-t border-border pt-4 text-xs text-muted-foreground"><span>{status?.bitrateKbps ? `${status.bitrateKbps} kbps` : 'Bitrate —'}</span><span className="text-center">{status?.sampleRate ? `${status.sampleRate} Hz` : 'Sample —'}</span><span className="text-right">{status?.contentType || 'Format —'}</span></div></section>;
+  return <section className="rounded-3xl border border-border bg-card p-5 sm:p-6" data-testid="card-signal-status"><SectionLabel right={heartbeat}>Signal telemetry</SectionLabel><div className="flex flex-wrap items-end justify-between gap-4"><div><StatusBadge status={status} /><p className="mt-4 text-3xl font-bold tracking-tight">{state === 'LIVE' ? 'Broadcasting' : state === 'CONNECTING' ? 'Waiting for source' : state === 'RECONNECTING' ? 'Finding source' : 'Off air'}</p><p className="mt-1 text-sm text-muted-foreground">{status?.broadcasterConnected ? 'Broadcaster connected' : 'No broadcaster connection'}</p></div><div className="grid grid-cols-2 gap-3 text-right"><div><p className="font-mono text-2xl text-primary">{status?.listenerCount ?? '—'}</p><p className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">listeners</p></div><div><p className="font-mono text-2xl text-secondary">{formatDuration(status?.uptimeSeconds)}</p><p className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">uptime</p></div></div></div><div className="mt-6 grid grid-cols-3 gap-2 border-t border-border pt-4 text-xs text-muted-foreground"><span>{status?.bitrateKbps ? `${status.bitrateKbps} kbps` : 'Bitrate —'}</span><span className="text-center">{status?.sampleRate ? `${status.sampleRate} Hz` : 'Sample —'}</span><span className="text-right">{status?.contentType || 'Format —'}</span></div></section>;
 }
 
 const BROADCASTER_INSTALLER_URL = 'https://github.com/wazzapr/USALB-Radio/releases/download/broadcaster-latest/USALB-Broadcaster-Setup.exe';
@@ -48,7 +46,7 @@ function BroadcasterDownloadPanel() {
       <div>
         <SectionLabel right="Windows app">Broadcaster setup</SectionLabel>
         <h2 className="mt-2 text-2xl font-bold tracking-tight">Download the USALB broadcaster.</h2>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Install the native Windows app, pair it once with the station pairing code, then press GO LIVE. The broadcaster saves its private publish credentials on this PC and sends Windows system audio to the public relay.</p>
+        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Install the native Windows app and press GO LIVE. On first launch, it securely enrolls this PC with USALB and saves its private publish credentials locally.</p>
       </div>
       <div className="flex flex-wrap gap-2">
         <a href={BROADCASTER_INSTALLER_URL} download className="flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90" data-testid="link-download-broadcaster-installer"><Download size={16} /> Windows installer</a>
@@ -60,7 +58,7 @@ function BroadcasterDownloadPanel() {
       <div><p className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">Broadcaster connection</p><p className="mt-1 break-all text-sm font-semibold">{details?.publishEndpoint || 'Loading connection details…'}</p></div>
       <div><p className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">Public listener stream</p><p className="mt-1 break-all text-sm font-semibold">{details?.publicStreamEndpoint || 'Loading stream details…'}</p></div>
     </div>
-    <p className="mt-4 rounded-2xl bg-muted/45 px-4 py-3 text-xs leading-relaxed text-muted-foreground">Pairing credentials are not displayed here. Pair the Windows broadcaster once using the station pairing code. The private publish key is generated by the server and saved by the broadcaster; keep it secret and use the public station homepage for listeners.</p>
+    <p className="mt-4 rounded-2xl bg-muted/45 px-4 py-3 text-xs leading-relaxed text-muted-foreground">The private publish key is generated automatically by the server and saved on this PC. It is never shown in the Control Room. Keep the Windows broadcaster credentials private; listeners use the public station homepage.</p>
   </section>;
 }
 
@@ -101,7 +99,6 @@ function AdminConsole() {
   const station = useGetStation();
   const status = useGetStreamStatus({ query: { queryKey: getGetStreamStatusQueryKey(), refetchInterval: 5000 } });
   const nowPlaying = useGetNowPlaying({ query: { queryKey: getGetNowPlayingQueryKey(), refetchInterval: 10000 } });
-  const listeners = useGetListeners({ query: { queryKey: getGetListenersQueryKey(), refetchInterval: 10000 } });
   const chat = useGetChat({ query: { queryKey: getGetChatQueryKey(), refetchInterval: 12000 } });
   const diagnostics = useGetAdminDiagnostics({ query: { queryKey: getGetAdminDiagnosticsQueryKey(), refetchInterval: 15000 } });
   return <main className="noise min-h-[100dvh] station-grid">
@@ -119,7 +116,7 @@ function AdminConsole() {
         <BroadcasterDownloadPanel />
         <div className="grid gap-6 xl:grid-cols-[1.1fr_.9fr]">
           <div className="space-y-6">
-            <SignalCard status={status.data} listeners={listeners.data?.count} />
+            <SignalCard status={status.data} />
             <div className="grid gap-6 md:grid-cols-2"><NowPlayingForm track={nowPlaying.data} /><Diagnostics data={diagnostics.data} /></div>
           </div>
           <div className="space-y-6"><SettingsForm station={station.data} /><Moderation messages={chat.data || []} /></div>
