@@ -1,3 +1,9 @@
+## 1.0.31
+
+- Adds a self-service Listen2MyRadio source setup panel to the Windows broadcaster.
+- Lets the operator enter hostname, port, SHOUTcast v1/v2 or Icecast 2, mount, source username, source password, and bitrate.
+- Saves source settings locally under the current Windows user with DPAPI encryption; no source password is committed to GitHub or included in the installer.
+
 ## 1.0.30
 
 - Adds automatic microphone ducking with adjustable voice threshold and music reduction.
