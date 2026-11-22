@@ -1,3 +1,9 @@
+## 1.0.30
+
+- Adds automatic microphone ducking with adjustable voice threshold and music reduction.
+- Adds independent microphone bass, mid, and treble EQ controls without changing the music EQ.
+- Keeps the existing audio transport, reconnect, and live relay behavior unchanged.
+
 ## 1.0.29
 
 - Keeps the 20 ms broadcaster audio loop running while the server confirms a planned WebSocket handoff.
