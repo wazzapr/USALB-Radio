@@ -58,8 +58,33 @@
 
 <Border Background="#151922" CornerRadius="14" Padding="18">
 <StackPanel>
-<TextBlock Text="CONNECTION" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
-<TextBlock Text="USALB server" Margin="0,10,0,0"/>
+<TextBlock Text="RADIO SERVER SETUP" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
+<TextBlock Text="Listen2MyRadio / Centova Cast" FontSize="15" FontWeight="SemiBold" Margin="0,10,0,0"/>
+<TextBlock Text="Server hostname" Foreground="#AEB4C0" FontSize="11" Margin="0,8,0,0"/>
+<TextBox x:Name="RadioHostBox" Text="uk22freenew.listen2myradio.com" Margin="0,4,0,0" Padding="7" Background="#0D1016" Foreground="White" BorderBrush="#303541"/>
+<TextBlock Text="Source port" Foreground="#AEB4C0" FontSize="11" Margin="0,8,0,0"/>
+<TextBox x:Name="RadioPortBox" Text="3898" Margin="0,4,0,0" Padding="7" Background="#0D1016" Foreground="White" BorderBrush="#303541"/>
+<TextBlock Text="Server type" Foreground="#AEB4C0" FontSize="11" Margin="0,8,0,0"/>
+<ComboBox x:Name="RadioTypeBox" SelectedIndex="0" Margin="0,4,0,0" Padding="6" Background="#0D1016" Foreground="White">
+  <ComboBoxItem Content="SHOUTcast v1"/>
+  <ComboBoxItem Content="SHOUTcast v2"/>
+  <ComboBoxItem Content="Icecast 2"/>
+</ComboBox>
+<TextBlock Text="Mount point (Icecast / SHOUTcast v2 if provided)" Foreground="#AEB4C0" FontSize="11" Margin="0,8,0,0"/>
+<TextBox x:Name="RadioMountBox" Text="/" Margin="0,4,0,0" Padding="7" Background="#0D1016" Foreground="White" BorderBrush="#303541"/>
+<TextBlock Text="Source username (if required)" Foreground="#AEB4C0" FontSize="11" Margin="0,8,0,0"/>
+<TextBox x:Name="RadioUserBox" Text="source" Margin="0,4,0,0" Padding="7" Background="#0D1016" Foreground="White" BorderBrush="#303541"/>
+<TextBlock Text="Source password" Foreground="#AEB4C0" FontSize="11" Margin="0,8,0,0"/>
+<PasswordBox x:Name="RadioPasswordBox" Margin="0,4,0,0" Padding="7" Background="#0D1016" Foreground="White" BorderBrush="#303541"/>
+<TextBlock Text="Stream bitrate" Foreground="#AEB4C0" FontSize="11" Margin="0,8,0,0"/>
+<ComboBox x:Name="RadioBitrateBox" SelectedIndex="3" Margin="0,4,0,0" Padding="6" Background="#0D1016" Foreground="White">
+  <ComboBoxItem Content="128 kbps"/><ComboBoxItem Content="160 kbps"/><ComboBoxItem Content="192 kbps"/><ComboBoxItem Content="320 kbps"/>
+</ComboBox>
+<Button x:Name="SaveRadioSettingsButton" Content="SAVE RADIO SETTINGS SECURELY" Height="36" Margin="0,12,0,0" Click="SaveRadioSettingsButton_Click"/>
+<TextBlock x:Name="RadioSettingsStatus" Text="Enter your source details and save them on this PC." Foreground="#AEB4C0" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
+<Separator Margin="0,14,0,12" Background="#303541"/>
+<TextBlock Text="USALB CONTROL SERVER" FontSize="11" FontWeight="Bold" Foreground="#8E96A5"/>
+<TextBlock Text="USALB server" Margin="0,8,0,0"/>
 <TextBox x:Name="ServerBox" Text="https://usalb-radio--applauncher.replit.app" Margin="0,5,0,0" Padding="8" Background="#0D1016" Foreground="White" BorderBrush="#303541"/>
 <TextBlock Text="AUTOMATIC CONNECTION" FontSize="11" FontWeight="Bold" Foreground="#8E96A5" Margin="0,10,0,0"/>
 <TextBlock Text="This PC receives its private broadcaster credential automatically from the USALB server. Nothing needs to be typed." Foreground="#AEB4C0" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
