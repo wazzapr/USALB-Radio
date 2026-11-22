@@ -48,6 +48,11 @@
 <Slider x:Name="MicVolume" Minimum="0" Maximum="100" Value="100"/>
 <TextBlock Text="MASTER" Foreground="#8E96A5" FontSize="11" FontWeight="Bold" Margin="0,8,0,0"/>
 <Slider x:Name="MasterVolume" Minimum="0" Maximum="100" Value="100"/>
+<CheckBox x:Name="DuckingBox" Content="Auto-duck music when speaking" IsChecked="True" Margin="0,14,0,0"/>
+<TextBlock Text="VOICE ACTIVATION THRESHOLD" Foreground="#8E96A5" FontSize="10" FontWeight="Bold" Margin="0,8,0,0"/>
+<Slider x:Name="DuckingThreshold" Minimum="-60" Maximum="-20" Value="-42"/>
+<TextBlock Text="MUSIC REDUCTION" Foreground="#8E96A5" FontSize="10" FontWeight="Bold" Margin="0,6,0,0"/>
+<Slider x:Name="DuckingReduction" Minimum="0" Maximum="24" Value="12"/>
 </StackPanel>
 </Border>
 
@@ -77,6 +82,19 @@
 <TextBlock Text="TREBLE" Foreground="#8E96A5" FontSize="11" Margin="0,8,0,0"/>
 <Slider x:Name="TrebleGain" Minimum="-12" Maximum="12" Value="0"/>
 <CheckBox x:Name="LimiterBox" Content="Master limiter / peak protection" IsChecked="True" Margin="0,14,0,0"/>
+</StackPanel>
+</Border>
+
+<Border Background="#151922" CornerRadius="14" Padding="18" Margin="0,0,0,12">
+<StackPanel>
+<TextBlock Text="MICROPHONE EQ" FontSize="12" FontWeight="Bold" Foreground="#8E96A5"/>
+<TextBlock Text="Independent voice tone controls" FontSize="14" FontWeight="SemiBold" Margin="0,8,0,0"/>
+<TextBlock Text="MIC BASS" Foreground="#8E96A5" FontSize="10" Margin="0,10,0,0"/>
+<Slider x:Name="MicBassGain" Minimum="-12" Maximum="12" Value="0"/>
+<TextBlock Text="MIC MID" Foreground="#8E96A5" FontSize="10" Margin="0,6,0,0"/>
+<Slider x:Name="MicMidGain" Minimum="-12" Maximum="12" Value="0"/>
+<TextBlock Text="MIC TREBLE" Foreground="#8E96A5" FontSize="10" Margin="0,6,0,0"/>
+<Slider x:Name="MicTrebleGain" Minimum="-12" Maximum="12" Value="0"/>
 </StackPanel>
 </Border>
 
