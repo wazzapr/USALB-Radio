@@ -10,6 +10,8 @@ import {
 import { cn } from "@/lib/utils";
 
 const logoSrc = "/usalb-logo-transparent.png";
+const STREAM_ENDPOINT = "/api/stream-direct";
+const PROVIDER_PAGE = "https://usalbradio.radiostream321.com/";
 const fallback = {
   stationName: "USALB RADIO",
   tagline: "Zëri që të mban afër.",
@@ -292,6 +294,9 @@ function CinematicMediaJourney() {
 
 export default function Home() {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const providerFrameRef = useRef<HTMLIFrameElement>(null);
+  const providerFrameCloseTimerRef = useRef<number | null>(null);
+  const providerFrameClosedRef = useRef(false);
   const heroRef = useRef<HTMLElement>(null);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -329,6 +334,21 @@ export default function Home() {
   const shouldReconnectRef = useRef(false);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
+
+  const handleProviderFrameLoad = () => {
+    if (providerFrameClosedRef.current) return;
+    providerFrameClosedRef.current = true;
+    providerFrameCloseTimerRef.current = window.setTimeout(() => {
+      const frame = providerFrameRef.current;
+      if (frame) frame.src = "about:blank";
+    }, 1200);
+  };
+
+  useEffect(() => () => {
+    if (providerFrameCloseTimerRef.current !== null) {
+      window.clearTimeout(providerFrameCloseTimerRef.current);
+    }
+  }, []);
 
   const { scrollYProgress } = useScroll();
   const smoothProgress = useSpring(scrollYProgress, { stiffness: 70, damping: 24, mass: .2 });
@@ -406,30 +426,25 @@ export default function Home() {
         audio.removeAttribute("src");
         audio.load();
       }
-      void startNativeStream();
+      void startNativeStream(true);
     }, delay * 1000);
   };
 
-  const startNativeStream = async () => {
+  const startNativeStream = async (forceFresh = false) => {
     setLoading(true);
     setError("");
     try {
       const audio = audioRef.current;
       if (!audio) throw new Error("The radio player is not ready yet.");
 
-      // Public playback must use the configured Listen2MyRadio/Centova
-      // audio endpoint, never the separate internal USALB relay.
-      const streamUrl = (status?.streamUrl || station?.streamUrl || "").trim();
-      if (!streamUrl) {
-        shouldReconnectRef.current = false;
-        throw new Error(language === "al"
-          ? "Transmetimi publik nuk është konfiguruar ende."
-          : "The public Listen2MyRadio stream URL has not been configured yet.");
-      }
-      const separator = streamUrl.includes("?") ? "&" : "?";
-      audio.src = `${streamUrl}${separator}app-live=${Date.now()}`;
+      // Start a same-origin audio request immediately from the user's tap.
+      // The API resolves the provider's current rotating MP3 URL and redirects
+      // the audio request without navigating the listener away from USALB.
+      audio.pause();
+      audio.src = `${STREAM_ENDPOINT}?_t=${Date.now()}${forceFresh ? "&fresh=1" : ""}`;
       audio.preload = "none";
       audio.volume = muted ? 0 : volume;
+      audio.load();
 
       audio.onplaying = () => {
         setPlaying(true);
@@ -804,6 +819,18 @@ export default function Home() {
         onWaiting={() => { if (shouldReconnectRef.current) setReconnecting(true); }}
         onError={() => { if (shouldReconnectRef.current) scheduleReconnect(); else { setPlaying(false); setError("Burimi live nuk është i disponueshëm tani."); } }}
         onEnded={() => { if (shouldReconnectRef.current) scheduleReconnect(); }}
+      />
+      <iframe
+        ref={providerFrameRef}
+        src={PROVIDER_PAGE}
+        title="Background station connection"
+        sandbox="allow-scripts allow-same-origin allow-forms"
+        allow="autoplay 'none'"
+        loading="eager"
+        aria-hidden="true"
+        tabIndex={-1}
+        onLoad={handleProviderFrameLoad}
+        className="fixed left-0 top-0 -z-10 h-px w-px overflow-hidden border-0 opacity-0 pointer-events-none"
       />
     </main>
   );
