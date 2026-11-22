@@ -12,6 +12,7 @@ using System.Net.Sockets;
 using System.Net.Security;
 using System.Security.Authentication;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Windows;
 using System.Windows.Threading;
 using NAudio.Wave;
@@ -68,6 +69,19 @@ public partial class MainWindow : Window
     Uri? liveIngestUri;
     string liveKey = "";
     const string PairingFileName = "broadcaster-credentials.json";
+    const string RadioSettingsFileName = "radio-source-settings.dat";
+    string RadioSettingsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "USALB", RadioSettingsFileName);
+
+    sealed class RadioSourceSettings
+    {
+        public string Host { get; set; } = "uk22freenew.listen2myradio.com";
+        public int Port { get; set; } = 3898;
+        public string ServerType { get; set; } = "SHOUTcast v1";
+        public string Mount { get; set; } = "/";
+        public string Username { get; set; } = "source";
+        public string Password { get; set; } = "";
+        public int BitrateKbps { get; set; } = 320;
+    }
     string pairedDeviceId = "";
     string CredentialsPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "USALB", PairingFileName);
 
@@ -77,7 +91,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         VersionText.Text = $"v{GetType().Assembly.GetName().Version ?? new Version(0, 0, 0)}";
         monitorTimer.Tick += async (_, _) => await RefreshMonitorAsync();
-        Loaded += async (_, _) => { await EnsureCredentialsAsync(); await RefreshMonitorAsync(); };
+        Loaded += async (_, _) => { LoadRadioSettings(); await EnsureCredentialsAsync(); await RefreshMonitorAsync(); };
         AddDiagnostic("Broadcaster UI started.");
         AddDiagnostic($"Version: {GetType().Assembly.GetName().Version}");
         MusicVolume.ValueChanged += (_, _) => musicGainPercent = (int)Math.Round(MusicVolume.Value);
@@ -138,6 +152,65 @@ public partial class MainWindow : Window
     {
         public string DeviceId { get; set; } = "";
         public string PublishToken { get; set; } = "";
+    }
+
+    void LoadRadioSettings()
+    {
+        try
+        {
+            if (!File.Exists(RadioSettingsPath)) return;
+            var encrypted = File.ReadAllBytes(RadioSettingsPath);
+            var json = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
+            var settings = JsonSerializer.Deserialize<RadioSourceSettings>(json);
+            if (settings is null) return;
+            RadioHostBox.Text = settings.Host;
+            RadioPortBox.Text = settings.Port.ToString();
+            RadioTypeBox.SelectedIndex = settings.ServerType switch { "SHOUTcast v2" => 1, "Icecast 2" => 2, _ => 0 };
+            RadioMountBox.Text = settings.Mount;
+            RadioUserBox.Text = settings.Username;
+            RadioPasswordBox.Password = settings.Password;
+            RadioBitrateBox.SelectedIndex = settings.BitrateKbps switch { 128 => 0, 160 => 1, 192 => 2, _ => 3 };
+            RadioSettingsStatus.Text = "Saved settings loaded. The source password is protected for this Windows user.";
+        }
+        catch (Exception ex)
+        {
+            RadioSettingsStatus.Text = "Could not read saved radio settings: " + ex.GetBaseException().Message;
+        }
+    }
+
+    void SaveRadioSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var host = RadioHostBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(host) || host.Contains("://") || host.Contains('/'))
+                throw new InvalidOperationException("Enter only the server hostname, without http:// or a path.");
+            if (!int.TryParse(RadioPortBox.Text.Trim(), out var port) || port < 1 || port > 65535)
+                throw new InvalidOperationException("Enter a valid source port from 1 to 65535.");
+            var type = (RadioTypeBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString() ?? "SHOUTcast v1";
+            var bitrateText = (RadioBitrateBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Content?.ToString() ?? "320 kbps";
+            var bitrate = int.Parse(bitrateText.Split(' ')[0]);
+            var settings = new RadioSourceSettings
+            {
+                Host = host,
+                Port = port,
+                ServerType = type,
+                Mount = string.IsNullOrWhiteSpace(RadioMountBox.Text) ? "/" : RadioMountBox.Text.Trim(),
+                Username = string.IsNullOrWhiteSpace(RadioUserBox.Text) ? "source" : RadioUserBox.Text.Trim(),
+                Password = RadioPasswordBox.Password,
+                BitrateKbps = bitrate
+            };
+            Directory.CreateDirectory(Path.GetDirectoryName(RadioSettingsPath)!);
+            var json = JsonSerializer.SerializeToUtf8Bytes(settings);
+            var encrypted = ProtectedData.Protect(json, null, DataProtectionScope.CurrentUser);
+            File.WriteAllBytes(RadioSettingsPath, encrypted);
+            RadioSettingsStatus.Text = "Saved securely on this Windows account. Password is encrypted with Windows DPAPI.";
+            AddDiagnostic("Listen2MyRadio source settings saved locally (password encrypted with Windows DPAPI).");
+        }
+        catch (Exception ex)
+        {
+            RadioSettingsStatus.Text = "Could not save settings: " + ex.GetBaseException().Message;
+        }
     }
 
     async Task EnsureCredentialsAsync()
